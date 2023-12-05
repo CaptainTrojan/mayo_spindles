@@ -411,7 +411,7 @@ if __name__ == '__main__':
     dataset \
         .register_main_csv('data/Spindles_Total.csv') \
         .register_mefd_readers_from_dir('data') \
-        .set_duration(5)
+        .set_duration(30)
     
     for i, elem in enumerate(dataset):
         print(f"Element {i} has {len(elem['spindles'])} spindles")
