@@ -291,6 +291,8 @@ class PatientHandle:
         hist_ax.plot(np.linspace(0, self._duration, spindle_histogram_granularity), spindle_histogram)
         hist_ax.set(title=f"Spindle histogram. Total spindles: {len(self._own_dataframe)}. " \
             f"Fraction of time covered by spindles: {time_covered_by_spindles / (len(self._segments) * self._duration):.2f}")
+        # ensure y limit starts with zero
+        hist_ax.set_ylim(bottom=0)
                     
         # Save the plot
         self.__savefig(f"segment_plot.png")
@@ -300,31 +302,37 @@ class PatientHandle:
     
     def __getitem__(self, idx):
         start_time, end_time = self._segments[idx]._start_time, self._segments[idx]._end_time
-        
-        # extract channel data
-        data = self._reader.get_data(self._reader.channels, start_time * 1e6, end_time * 1e6)
-        for channel in data:
-            channel = np.nan_to_num(channel, nan=0.0)
-        
+
         # find most common sampling rate (fsamp)
         sampling_rates = [self._reader.get_property('fsamp', channel) for channel in self._reader.channels]  
         most_common_sampling_rate = max(set(sampling_rates), key=sampling_rates.count)
         target_length = int(self._duration * most_common_sampling_rate)
         
-        # resample all channels to the most common sampling rate using numpy.interp
-        for i, channel in enumerate(self._reader.channels):
-            if len(data[i]) != target_length:
-                data[i] = np.interp(np.linspace(0, 1, target_length), np.linspace(0, 1, len(data[i])), data[i])
-                
-        # compose the data into a numpy matrix
-        data = np.stack(data, axis=1)
+        # extract channel data
+        all_data = []
+        for channel in self._reader.channels:
+            data = self._reader.get_data(channel, int(start_time * 1e6), int(end_time * 1e6))
+            data = np.nan_to_num(data, nan=0.0)
+            if data != target_length:
+                data = np.interp(np.linspace(0, 1, target_length), np.linspace(0, 1, len(data)), data)
+
+            all_data.append(data)
+        data = np.stack(all_data, axis=1)
         
+        # fetch spindles
         spindles = self._own_dataframe.iloc[self._segments[idx].spindles].copy()
         # trim spindles to fit the segment
         spindles['Start'] = spindles['Start'].apply(lambda x: max(x, start_time))
         spindles['End'] = spindles['End'].apply(lambda x: min(x, end_time))
         
-        return {'data': data, 'spindles': spindles, 'start_time': start_time, 'end_time': end_time}
+        return {
+            'data': data,
+            'spindles': spindles,
+            'start_time': start_time,
+            'end_time': end_time,
+            'patient_id': self._patient_id, 
+            'emu_id': self._emu_id
+        }
 
 
 class SpindleDataset(Dataset):
@@ -414,11 +422,4 @@ if __name__ == '__main__':
         .set_duration(30)
     
     for i, elem in enumerate(dataset):
-        print(f"Element {i} has {len(elem['spindles'])} spindles")
-        print(f"Element {i} has {elem['data'].shape[1]} channels")
-        print(f"Element {i} has {elem['data'].shape[0]} samples")
-        print(f"Element {i} has start time {elem['start_time']} and end time {elem['end_time']}")
-        print("=" * 80)
-        
-        if i == 10:
-            break
+        print(f"# spindles = {len(elem['spindles'])}, data_shape = {elem['data'].shape}")
