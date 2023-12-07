@@ -7,3 +7,4 @@ torchvision==0.16.1
 tqdm==4.66.1
 mef_tools
 pymef
+scipy

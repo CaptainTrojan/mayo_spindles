@@ -9,6 +9,95 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import datetime
 import numpy as np
+from scipy import signal
+
+
+class PreprocessingStaticFactory:
+    @staticmethod
+    def NO_PREPROCESSING():
+        return Preprocessing(False, False, None)
+    
+    @staticmethod
+    def NORMALIZE():
+        return Preprocessing(True, False, None)
+    
+    @staticmethod
+    def NORM_CWT():
+        return Preprocessing(True, True, None)
+    
+    @staticmethod
+    def NORM_BANDPASS_11_15():
+        return Preprocessing(True, False, (11, 15))
+    
+
+class Preprocessing:    
+    def __init__(self, normalize: bool = False, apply_cwt: bool = False, frequency_filter: tuple[int,int] = None):
+        self.__normalize = normalize
+        self.__apply_cwt = apply_cwt
+        self.__frequency_filter = frequency_filter
+        self.__fsamp = None
+        
+    def set_fsamp(self, fsamp):
+        if self.__fsamp is None:
+            self.__fsamp = fsamp
+        else:
+            assert self.__fsamp == fsamp, f"Expected sampling frequency to be common for each patient, but got {self.__fsamp} and {fsamp}"
+
+    def __call__(self, data):
+        # Normalize data
+        if self.__normalize:
+            data = self._normalize(data)
+
+        # Apply frequency filter
+        if self.__frequency_filter:
+            data = self._frequency_filter(data)
+
+        # Apply CWT
+        if self.__apply_cwt:
+            data = self._apply_cwt(data)
+
+        return data
+
+    def _normalize(self, data):
+        return np.nan_to_num((data - np.mean(data, axis=1)[:, np.newaxis]) / np.std(data, axis=1)[:, np.newaxis], nan=0.0)
+
+    def _frequency_filter(self, data):
+        frequency_range = self.__frequency_filter
+        nyquist = 0.5 * self.__fsamp
+        low, high = frequency_range
+        low /= nyquist
+        high /= nyquist
+        b, a = signal.butter(5, [low, high], btype='band')
+        return signal.lfilter(b, a, data)
+
+    def _apply_cwt(self, data):
+        widths = np.arange(1, 10)
+        scalograms = []
+        for channel in data:
+            if np.all(channel == 0):
+                continue
+            sg = signal.cwt(channel, signal.morlet, widths).real
+            scalograms.append(sg)
+            break
+        return np.mean(scalograms, axis=0)
+    
+    def set_normalize(self, normalize):
+        self.__normalize = normalize
+        
+    def get_normalize(self):
+        return self.__normalize
+    
+    def set_apply_cwt(self, apply_cwt):
+        self.__apply_cwt = apply_cwt
+        
+    def get_apply_cwt(self):
+        return self.__apply_cwt
+    
+    def set_frequency_filter(self, frequency_filter):
+        self.__frequency_filter = frequency_filter
+        
+    def get_frequency_filter(self):
+        return self.__frequency_filter
 
 
 class Segment:
@@ -34,6 +123,7 @@ class PatientHandle:
                  emu_id: int,
                  reader: MefReader,
                  csv_file: str,
+                 preprocessing: Preprocessing,
                  spindle_data_radius: int = 0,
                  report_analysis=False,
                  only_intracranial_data=True
@@ -43,6 +133,8 @@ class PatientHandle:
         self._segments = None
         self._start_times_per_channel = None
         self._end_times_per_channel = None
+        self._perform_cwt = False
+        self._preprocessing = preprocessing
         
         self._report_analysis = report_analysis
         self._spindle_data_radius = spindle_data_radius
@@ -56,6 +148,10 @@ class PatientHandle:
 
         self._own_dataframe = self.build_dataframe(csv_file)
         self._start_time, self._end_time = self.analyse_reader()
+        
+        self._target_length = None
+        self._fsamp = self.__calculate_fsamp()
+        self._preprocessing.set_fsamp(self._fsamp)
         
     def analyse_reader(self):
         start_times = []
@@ -118,6 +214,8 @@ class PatientHandle:
         
         if self._report_analysis:
             self.__plot_segments()
+            
+        self._target_length = self.__calculate_target_length()
 
     def __build_segments(self):
         # calculate total segments, the last segment may be shorter than duration
@@ -301,28 +399,34 @@ class PatientHandle:
                     
         # Save the plot
         self.__savefig(f"segment_plot.png")
-                            
+        
+    def __calculate_fsamp(self):
+        sampling_rates = [self._reader.get_property('fsamp', channel) for channel in self._channels]  
+        most_common_sampling_rate = max(set(sampling_rates), key=sampling_rates.count)
+        return most_common_sampling_rate
+    
+    def __calculate_target_length(self):
+        return int(self._duration * self._fsamp)
+
     def __len__(self):
         return len(self._segments)
     
     def __getitem__(self, idx):
         start_time, end_time = self._segments[idx]._start_time, self._segments[idx]._end_time
 
-        # find most common sampling rate (fsamp)
-        sampling_rates = [self._reader.get_property('fsamp', channel) for channel in self._channels]  
-        most_common_sampling_rate = max(set(sampling_rates), key=sampling_rates.count)
-        target_length = int(self._duration * most_common_sampling_rate)
-        
         # extract channel data
         all_data = []
         for channel in self._channels:
             data = self._reader.get_data(channel, int(start_time * 1e6), int(end_time * 1e6))
             data = np.nan_to_num(data, nan=0.0)
-            if len(data) != target_length:
-                data = np.interp(np.linspace(0, 1, target_length), np.linspace(0, 1, len(data)), data)
+            if len(data) != self._target_length:
+                data = np.interp(np.linspace(0, 1, self._target_length), np.linspace(0, 1, len(data)), data)
 
             all_data.append(data)
-        data = np.stack(all_data, axis=1)
+        data = np.stack(all_data, axis=0)
+        
+        # preprocess data
+        data = self._preprocessing(data)
         
         # fetch spindles
         spindles = self._own_dataframe.iloc[self._segments[idx].spindles].copy()
@@ -342,11 +446,16 @@ class PatientHandle:
 
 
 class SpindleDataset(Dataset):
-    def __init__(self, report_analysis=False, only_intracranial_data=True):
+    def __init__(self, 
+                 report_analysis=False,
+                 only_intracranial_data=True,
+                 preprocessing: Preprocessing = PreprocessingStaticFactory.NO_PREPROCESSING()
+                 ):
         self._patient_handles = {}
         self._lengths = []
         self._report_analysis = report_analysis
         self._only_intracranial_data = only_intracranial_data
+        self._preprocessing = preprocessing
 
     def register_main_csv(self, csv_file):
         print(f"Registering main csv file {csv_file}")
@@ -390,6 +499,7 @@ class SpindleDataset(Dataset):
         
         reader = MefReader(mefd_folder, password2='imagination')
         patient_handle = PatientHandle(patient_id, emu_id, reader, self._csv_file,
+                                       preprocessing=self._preprocessing,
                                        report_analysis=self._report_analysis,
                                        only_intracranial_data=self._only_intracranial_data)
         self._patient_handles[(patient_id, emu_id)] = patient_handle
@@ -403,6 +513,24 @@ class SpindleDataset(Dataset):
         self._lengths = [len(patient_handle) for patient_handle in self._patient_handles.values()]
         
         return self
+    
+    def set_normalize(self, normalize):
+        self._preprocessing.set_normalize(normalize)
+    
+    def get_normalize(self):
+        return self._preprocessing.get_normalize()
+    
+    def set_apply_cwt(self, apply_cwt):
+        self._preprocessing.set_apply_cwt(apply_cwt)
+        
+    def get_apply_cwt(self):
+        return self._preprocessing.get_apply_cwt()
+    
+    def set_frequency_filter(self, frequency_filter):
+        self._preprocessing.set_frequency_filter(frequency_filter)
+        
+    def get_frequency_filter(self):
+        return self._preprocessing.get_frequency_filter()
     
     def __len__(self):
         return sum(self._lengths)
