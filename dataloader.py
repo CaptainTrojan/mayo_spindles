@@ -35,29 +35,33 @@ class PatientHandle:
                  reader: MefReader,
                  csv_file: str,
                  spindle_data_radius: int = 0,
-                 report_analysis=False):
+                 report_analysis=False,
+                 only_intracranial_data=True
+                 ):
         
         self._duration = None
         self._segments = None
+        self._start_times_per_channel = None
+        self._end_times_per_channel = None
+        
         self._report_analysis = report_analysis
         self._spindle_data_radius = spindle_data_radius
         self._plot_path = 'plots'
-
+        self._only_intracranial_data = only_intracranial_data
         self._reader = reader
         self._patient_id = patient_id
         self._emu_id = emu_id
+        self._channels = self._reader.channels if not self._only_intracranial_data \
+            else [c for c in self._reader.channels if c.startswith('e')]
+
         self._own_dataframe = self.build_dataframe(csv_file)
-        
-        self._start_times_per_channel = None
-        self._end_times_per_channel = None
         self._start_time, self._end_time = self.analyse_reader()
-        
         
     def analyse_reader(self):
         start_times = []
         end_times = []
         print(f"Analysing {self._patient_id=} MEFD")
-        for channel in self._reader.channels:
+        for channel in self._channels:
             start_time = self._reader.get_property('start_time', channel)
             end_time = self._reader.get_property('end_time', channel)
             start_times.append(start_time)
@@ -205,11 +209,12 @@ class PatientHandle:
         plot_path = os.path.join(plot_dir, path)
         os.makedirs(plot_dir, exist_ok=True)
         plt.savefig(plot_path)
+        plt.clf()
     
     def __plot_intervals(self, include_spindles):
         start_times = self._start_times_per_channel
         end_times = self._end_times_per_channel
-        channel_names = self._reader.channels
+        channel_names = self._channels
         fig, ax = plt.subplots(figsize=(10, 10), constrained_layout=True)
         ax.set(title=f"Interval Plot for Patient {self._patient_id} EMU {self._emu_id}")
 
@@ -304,16 +309,16 @@ class PatientHandle:
         start_time, end_time = self._segments[idx]._start_time, self._segments[idx]._end_time
 
         # find most common sampling rate (fsamp)
-        sampling_rates = [self._reader.get_property('fsamp', channel) for channel in self._reader.channels]  
+        sampling_rates = [self._reader.get_property('fsamp', channel) for channel in self._channels]  
         most_common_sampling_rate = max(set(sampling_rates), key=sampling_rates.count)
         target_length = int(self._duration * most_common_sampling_rate)
         
         # extract channel data
         all_data = []
-        for channel in self._reader.channels:
+        for channel in self._channels:
             data = self._reader.get_data(channel, int(start_time * 1e6), int(end_time * 1e6))
             data = np.nan_to_num(data, nan=0.0)
-            if data != target_length:
+            if len(data) != target_length:
                 data = np.interp(np.linspace(0, 1, target_length), np.linspace(0, 1, len(data)), data)
 
             all_data.append(data)
@@ -331,15 +336,17 @@ class PatientHandle:
             'start_time': start_time,
             'end_time': end_time,
             'patient_id': self._patient_id, 
-            'emu_id': self._emu_id
+            'emu_id': self._emu_id,
+            'channel_names': self._channels
         }
 
 
 class SpindleDataset(Dataset):
-    def __init__(self, report_analysis=False):
+    def __init__(self, report_analysis=False, only_intracranial_data=True):
         self._patient_handles = {}
         self._lengths = []
         self._report_analysis = report_analysis
+        self._only_intracranial_data = only_intracranial_data
 
     def register_main_csv(self, csv_file):
         print(f"Registering main csv file {csv_file}")
@@ -382,7 +389,9 @@ class SpindleDataset(Dataset):
         assert emu_text == 'ses', f"Folder name {folder_name} does not contain 'ses', cannot infer emu id"
         
         reader = MefReader(mefd_folder, password2='imagination')
-        patient_handle = PatientHandle(patient_id, emu_id, reader, self._csv_file, report_analysis=self._report_analysis)
+        patient_handle = PatientHandle(patient_id, emu_id, reader, self._csv_file,
+                                       report_analysis=self._report_analysis,
+                                       only_intracranial_data=self._only_intracranial_data)
         self._patient_handles[(patient_id, emu_id)] = patient_handle
                 
         return self
@@ -410,16 +419,3 @@ class SpindleDataset(Dataset):
         
         return self._patient_handles[patient_id][idx]
 
-
-if __name__ == '__main__':
-    dataset = SpindleDataset(report_analysis=True)
-    
-    all_mefds = [f"data/{f}" for f in os.listdir('data') if f.endswith('.mefd')]
-    
-    dataset \
-        .register_main_csv('data/Spindles_Total.csv') \
-        .register_mefd_readers_from_dir('data') \
-        .set_duration(30)
-    
-    for i, elem in enumerate(dataset):
-        print(f"# spindles = {len(elem['spindles'])}, data_shape = {elem['data'].shape}")
