@@ -1,8 +1,9 @@
 matplotlib==3.8.2
-mef_tools==1.2.1
 numpy==1.26.2
 pandas==2.1.3
 pytorch_lightning==2.1.2
 torch==2.1.1
 torchvision==0.16.1
 tqdm==4.66.1
+mef_tools
+pymef

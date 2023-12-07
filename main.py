@@ -1,5 +1,3 @@
-from sleepylyze.nrem import NREM
-
 import numpy as np
 from tqdm import tqdm
 from datetime import datetime
@@ -7,23 +5,30 @@ from mef_tools.io import MefWriter, MefReader
 
 import string
 import itertools
+import time
 
 reader = MefReader('data/sub-MH1_ses-EMU1_merged.mefd', password2='imagination')
-signals = []
 
-properties = reader.properties
-print(properties)
+start = 1576558776722156
+end = 1576558806722156
 
+a = time.time()
+
+all_data = []
 for channel in reader.channels:
-    # print(channel, reader.get_property('fsamp', channel))
-    
-    # x = reader.get_data(['e9-e10','Iz'])
-    for property in properties:
-        print(f"{property}: {reader.get_property(property, channel)}")
-    start_time = reader.get_property('start_time', channel)
-    end_time = reader.get_property('end_time', channel)
-    x = reader.get_data(channel, start_time, start_time+10*1e6)
-    print(f"Length of 10 second sample: {len(x)}")
-    print("=" * 80)
+    data = reader.get_data(channel, start, end)
+    print(data.shape)
+    all_data.append(data)
+# all_data = np.stack(all_data, axis=1)
+# print(all_data.shape)
 
-    
+b = time.time()
+
+all_data = reader.get_data(reader.channels, start, end)
+for data in all_data:
+    print(data.shape)
+
+c = time.time()
+
+print(b-a)
+print(c-b)
