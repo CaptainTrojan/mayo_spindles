@@ -16,6 +16,7 @@ def mock_init(self, csv):
     self.__start_times_per_channel = None
     self.__end_times_per_channel = None
     self._start_time, self._end_time = 0, 10
+    self._plot_path = "test_plots"
         
 def mock_set_duration(self, duration):
     self._duration = duration
