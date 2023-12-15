@@ -72,3 +72,43 @@ def test_str(evaluator):
                               np.array([0, 1, 1, 1, 1, 0, 1, 0], dtype=np.uint8))
     result_str = str(evaluator)
     assert "{'Hit Rate': 0.5}" in result_str
+
+def test_overlapping_intervals(evaluator):
+    intervals = [(0, 5), (1, 3), (2, 4), (3, 7)]
+    assert evaluator.get_intervals_with_min_overlap(intervals, 2) == [(1, 5)]
+    assert evaluator.get_intervals_with_min_overlap(intervals, 3) == [(2, 4)]
+    assert evaluator.get_intervals_with_min_overlap(intervals, 4) == []
+
+def test_non_overlapping_intervals(evaluator):
+    intervals = [(0, 1), (2, 3), (4, 5)]
+    assert evaluator.get_intervals_with_min_overlap(intervals, 1) == [(0, 1), (2, 3), (4, 5)]
+    assert evaluator.get_intervals_with_min_overlap(intervals, 2) == []
+
+def test_identical_intervals(evaluator):
+    intervals = [(0, 3), (0, 3), (0, 3), (0, 3)]
+    assert evaluator.get_intervals_with_min_overlap(intervals, 2) == [(0, 3)]
+    assert evaluator.get_intervals_with_min_overlap(intervals, 4) == [(0, 3)]
+    assert evaluator.get_intervals_with_min_overlap(intervals, 5) == []
+
+def test_nested_intervals(evaluator):
+    intervals = [(0, 5), (1, 4), (2, 3)]
+    assert evaluator.get_intervals_with_min_overlap(intervals, 2) == [(1, 4)]
+    assert evaluator.get_intervals_with_min_overlap(intervals, 3) == [(2, 3)]
+
+def test_complex_case(evaluator):
+    intervals = [(0, 5), (1, 3), (2, 4), (3, 7), (6, 8), (7, 9)]
+    assert evaluator.get_intervals_with_min_overlap(intervals, 2) == [(1, 5), (6, 8)]
+    assert evaluator.get_intervals_with_min_overlap(intervals, 3) == [(2, 4)]
+    assert evaluator.get_intervals_with_min_overlap(intervals, 4) == []
+    
+def test_fixed_length_intervals(evaluator):
+    starts = np.arange(0, 1000)
+    ends = starts + 5
+    intervals = np.stack((starts, ends), axis=-1)
+    assert len(evaluator.get_intervals_with_min_overlap(intervals, 5)) == 1
+
+def test_overlapping_intervals(evaluator):
+    starts = np.repeat(np.arange(0, 500, 2), 2)
+    ends = starts + 1
+    intervals = np.stack((starts, ends), axis=-1)
+    assert len(evaluator.get_intervals_with_min_overlap(intervals, 2)) == 250
