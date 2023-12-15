@@ -11,6 +11,22 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": false
+        },
+        {
+            "name": "run yasa",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/run_yasa.py",
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
+            "name": "perform analysis",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/perform_analysis.py",
+            "console": "integratedTerminal",
+            "justMyCode": false
         }
     ]
 }
