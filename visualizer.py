@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import numpy as np
 import datetime
+import argparse
 
 from dataloader import SpindleDataset
 
@@ -97,8 +98,8 @@ class Visualizer(QMainWindow):
                 axs[i].plot(X, elem['data'][i], label=f'Channel {i+1}')
 
                 # Mark the spindles in each subplot
-                for _, row in elem['spindles'].iterrows():
-                    axs[i].axvspan(row['Start'], row['End'], color='red', alpha=0.2)
+                for start, end in zip(elem['spindles']['Start'], elem['spindles']['End']):
+                    axs[i].axvspan(start, end, color='red', alpha=0.2)
 
                 # Add labels and title to each subplot            
                 axs[i].set(xlabel='Time')
@@ -120,8 +121,8 @@ class Visualizer(QMainWindow):
                        vmax=vmax, vmin=vmin)
             
             # Mark the spindles
-            for _, row in elem['spindles'].iterrows():
-                axs.axvspan(row['Start'], row['End'], color='red', alpha=0.2)
+            for start, end in zip(elem['spindles']['Start'], elem['spindles']['End']):
+                axs.axvspan(start, end, color='red', alpha=0.2)
             
             # Add labels and title to each subplot            
             axs.set(ylabel='Frequency')
@@ -143,7 +144,11 @@ class Visualizer(QMainWindow):
 
 
 if __name__ == '__main__':
-    dataset = SpindleDataset(report_analysis=False)
+    argparser = argparse.ArgumentParser()
+    argparser.add_argument('--icdata', action='store_true', help='Use only intracranial data')
+    args = argparser.parse_args()
+    
+    dataset = SpindleDataset(report_analysis=False, only_intracranial_data=args.icdata, pad_intracranial_channels=False)
     
     all_mefds = [f"data/{f}" for f in os.listdir('data') if f.endswith('.mefd')]
     
