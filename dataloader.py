@@ -1,7 +1,7 @@
 import csv
 from pprint import pprint
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, random_split
 from mef_tools.io import MefReader
 import os
 import pandas as pd
@@ -10,7 +10,10 @@ import matplotlib.dates as mdates
 import datetime
 import numpy as np
 from scipy import signal
+from pytorch_lightning import LightningDataModule
+import warnings
 
+warnings.filterwarnings("ignore", category=RuntimeWarning, module="pymef.mef_session", lineno=1391)
 
 class PreprocessingStaticFactory:
     @staticmethod
@@ -126,7 +129,8 @@ class PatientHandle:
                  preprocessing: Preprocessing,
                  spindle_data_radius: int = 0,
                  report_analysis=False,
-                 only_intracranial_data=True
+                 only_intracranial_data=True,
+                 pad_intracranial_channels=True
                  ):
         
         self._duration = None
@@ -140,24 +144,55 @@ class PatientHandle:
         self._spindle_data_radius = spindle_data_radius
         self._plot_path = 'plots'
         self._only_intracranial_data = only_intracranial_data
+        self._pad_intracranial_channels = pad_intracranial_channels
         self._reader = reader
         self._patient_id = patient_id
         self._emu_id = emu_id
-        self._channels = self._reader.channels if not self._only_intracranial_data \
-            else [c for c in self._reader.channels if c.startswith('e')]
+        
+        # channels for intracranial data e0-e1, e0-e2, ... so that they have fixed output indices
+        self._possible_intracranial_channels = [
+            'e0-e1', 'e0-e2', 'e0-e3', 'e1-e2', 'e1-e3', 'e2-e3',
+            'e4-e5', 'e4-e6', 'e4-e7', 'e5-e6', 'e5-e7', 'e6-e7',
+            'e8-e9', 'e8-e10', 'e8-e11', 'e9-e10', 'e9-e11', 'e10-e11',
+            'e12-e13', 'e12-e14', 'e12-e15', 'e13-e14', 'e13-e15', 'e14-e15'
+        ]
+        
+        # all channels that exist in the reader
+        self._existing_channels = self._reader.channels
+        
+        # channels that exist in the reader and are intracranial
+        self._existing_intracranial_channels = [c for c in self._existing_channels if c.startswith('e')]
+        # remaining channels that exist in the reader
+        self._existing_other_channels = [c for c in self._existing_channels if not c.startswith('e')]
+        
+        # channels from the reader that will be served
+        self._channels_to_serve = self._existing_intracranial_channels if self._only_intracranial_data else self._existing_channels
+        
+        # all channels that will be served (including zero/padded channels that do not exist in the reader)
+        self._output_channels = []
+        if self._pad_intracranial_channels:
+            self._output_channels += self._possible_intracranial_channels
+        else:
+            self._output_channels += self._existing_intracranial_channels
+        if not self._only_intracranial_data:
+            self._output_channels += self._existing_other_channels
+        
+        # [True] if intracranial channel exists, [False] otherwise
+        self._existing_intracranial_channels_mask = [c in self._existing_intracranial_channels for c in self._possible_intracranial_channels]
+            
+        # assert len(self._channels) == 6, self._channels
 
         self._own_dataframe = self.build_dataframe(csv_file)
         self._start_time, self._end_time = self.analyse_reader()
         
         self._target_length = None
         self._fsamp = self.__calculate_fsamp()
-        self._preprocessing.set_fsamp(self._fsamp)
         
     def analyse_reader(self):
         start_times = []
         end_times = []
         print(f"Analysing {self._patient_id=} MEFD")
-        for channel in self._channels:
+        for channel in self._existing_channels:
             start_time = self._reader.get_property('start_time', channel)
             end_time = self._reader.get_property('end_time', channel)
             start_times.append(start_time)
@@ -178,6 +213,7 @@ class PatientHandle:
         
         if self._report_analysis:
             self.__plot_intervals(include_spindles=False)
+            self.__plot_intracranial_channels()
 
         if common_percentage < 90:
             print(f"Warning: Common data percentage {common_percentage} for {self._patient_id=} {self._emu_id=} is less than 90%.")
@@ -203,16 +239,17 @@ class PatientHandle:
         self._duration = duration
         try:
             self.__build_segments()
+            spindles_exist = True
         except StopIteration:
             print(f"Warning: No spindles found for {self._patient_id=} {self._emu_id=}")
-            return
+            spindles_exist = False
         
-        if self._report_analysis:
+        if self._report_analysis and spindles_exist:
             self.__plot_intervals(include_spindles=True)
             
         self.__prune_segments()
         
-        if self._report_analysis:
+        if self._report_analysis and spindles_exist:
             self.__plot_segments()
             
         self._target_length = self.__calculate_target_length()
@@ -308,11 +345,35 @@ class PatientHandle:
         os.makedirs(plot_dir, exist_ok=True)
         plt.savefig(plot_path)
         plt.clf()
+        plt.close()
+    
+    def __plot_intracranial_channels(self):
+        channel_names = self._existing_intracranial_channels
+        fig, ax = plt.subplots(figsize=(7, 2), constrained_layout=True)
+        ax.set(title=f"Intracranial channels of Patient {self._patient_id} EMU {self._emu_id}")
+        
+        # Loop over data intervals and plot each one
+        for i, channel in enumerate(channel_names):
+            e_span = channel.split('-')
+            start, end = [int(v[1:]) for v in e_span]
+            start, end = int(start), int(end)
+            ax.plot([start, end], [i, i], color='tab:blue')
+        
+        ax.set_yticks(range(len(channel_names)))
+        ax.set_yticklabels(channel_names)
+        
+        # set X limit from 0 to 15 exactly
+        ax.set_xlim(left=0, right=15)
+        
+        # set X ticks
+        ax.set_xticks(range(0, 16, 1))
+
+        self.__savefig(f"intracranial_channels.png")
     
     def __plot_intervals(self, include_spindles):
         start_times = self._start_times_per_channel
         end_times = self._end_times_per_channel
-        channel_names = self._channels
+        channel_names = self._existing_channels
         fig, ax = plt.subplots(figsize=(10, 10), constrained_layout=True)
         ax.set(title=f"Interval Plot for Patient {self._patient_id} EMU {self._emu_id}")
 
@@ -401,9 +462,19 @@ class PatientHandle:
         self.__savefig(f"segment_plot.png")
         
     def __calculate_fsamp(self):
-        sampling_rates = [self._reader.get_property('fsamp', channel) for channel in self._channels]  
+        sampling_rates = [self._reader.get_property('fsamp', channel) for channel in self._channels_to_serve]  
         most_common_sampling_rate = max(set(sampling_rates), key=sampling_rates.count)
+        
+        print(f"Most common sampling rate for {self._patient_id=} {self._emu_id=} is "
+              f"{most_common_sampling_rate} with {sampling_rates.count(most_common_sampling_rate)} channels")
+        
         return most_common_sampling_rate
+    
+    def get_fsamp(self):
+        return self._fsamp
+    
+    def set_fsamp(self, fsamp):
+        self._fsamp = fsamp
     
     def __calculate_target_length(self):
         return int(self._duration * self._fsamp)
@@ -411,18 +482,36 @@ class PatientHandle:
     def __len__(self):
         return len(self._segments)
     
+    def _load_and_transform_data(self, start_time, end_time, channel):
+        data = self._reader.get_data(channel, int(start_time * 1e6), int(end_time * 1e6))
+        data = np.nan_to_num(data, nan=0.0)
+        if len(data) != self._target_length:
+            data = np.interp(np.linspace(0, 1, self._target_length), np.linspace(0, 1, len(data)), data)
+        return data
+    
     def __getitem__(self, idx):
         start_time, end_time = self._segments[idx]._start_time, self._segments[idx]._end_time
 
         # extract channel data
         all_data = []
-        for channel in self._channels:
-            data = self._reader.get_data(channel, int(start_time * 1e6), int(end_time * 1e6))
-            data = np.nan_to_num(data, nan=0.0)
-            if len(data) != self._target_length:
-                data = np.interp(np.linspace(0, 1, self._target_length), np.linspace(0, 1, len(data)), data)
-
-            all_data.append(data)
+        if self._pad_intracranial_channels:
+            for channel, exists in zip(self._possible_intracranial_channels, self._existing_intracranial_channels_mask):
+                if exists:
+                    data = self._load_and_transform_data(start_time, end_time, channel)
+                else:
+                    data = np.zeros(self._target_length)
+                all_data.append(data)
+        else:
+            for channel in self._existing_intracranial_channels:
+                data = self._load_and_transform_data(start_time, end_time, channel)
+                all_data.append(data)
+        
+        # add other channels if needed
+        if not self._only_intracranial_data:        
+            for channel in self._existing_other_channels:
+                data = self._load_and_transform_data(start_time, end_time, channel)
+                all_data.append(data)
+        
         data = np.stack(all_data, axis=0)
         
         # preprocess data
@@ -434,14 +523,17 @@ class PatientHandle:
         spindles['Start'] = spindles['Start'].apply(lambda x: max(x, start_time))
         spindles['End'] = spindles['End'].apply(lambda x: min(x, end_time))
         
+        if not self._preprocessing.get_apply_cwt():
+            assert len(self._output_channels) == data.shape[0], f"Expected {len(self._output_channels)} channels, got {data.shape[0]}"
+        
         return {
             'data': data,
-            'spindles': spindles,
+            'spindles': spindles.to_dict('list'),
             'start_time': start_time,
             'end_time': end_time,
             'patient_id': self._patient_id, 
             'emu_id': self._emu_id,
-            'channel_names': self._channels
+            'channel_names': self._output_channels
         }
 
 
@@ -449,13 +541,17 @@ class SpindleDataset(Dataset):
     def __init__(self, 
                  report_analysis=False,
                  only_intracranial_data=True,
+                 pad_intracranial_channels=True,
                  preprocessing: Preprocessing = PreprocessingStaticFactory.NO_PREPROCESSING()
                  ):
         self._patient_handles = {}
         self._lengths = []
         self._report_analysis = report_analysis
         self._only_intracranial_data = only_intracranial_data
+        self._pad_intracranial_channels = pad_intracranial_channels
         self._preprocessing = preprocessing
+        self._unregistered_readers = []
+        self._common_sampling_rate = 0
 
     def register_main_csv(self, csv_file):
         print(f"Registering main csv file {csv_file}")
@@ -463,6 +559,10 @@ class SpindleDataset(Dataset):
             raise ValueError(f"File {csv_file} does not exist")
         
         self._csv_file = csv_file
+        
+        for reader in self._unregistered_readers:
+            self.register_mefd_reader(reader)
+        
         return self
     
     def register_mefd_readers_from_dir(self, mefd_dir):
@@ -475,12 +575,13 @@ class SpindleDataset(Dataset):
                 self.register_mefd_reader(os.path.join(mefd_dir, f))
         
         return self
-                
 
     def register_mefd_reader(self, mefd_folder):
         print(f"Registering mefd folder {mefd_folder}")
         if self._csv_file is None:
-            raise ValueError("Must register main csv file first")
+            # csv file must exist beforehand
+            self._unregistered_readers.append(mefd_folder)
+            return self
         
         if not os.path.isdir(mefd_folder):
             raise ValueError(f"Folder {mefd_folder} does not exist")
@@ -501,13 +602,21 @@ class SpindleDataset(Dataset):
         patient_handle = PatientHandle(patient_id, emu_id, reader, self._csv_file,
                                        preprocessing=self._preprocessing,
                                        report_analysis=self._report_analysis,
-                                       only_intracranial_data=self._only_intracranial_data)
+                                       only_intracranial_data=self._only_intracranial_data,
+                                       pad_intracranial_channels=self._pad_intracranial_channels
+                                       )
         self._patient_handles[(patient_id, emu_id)] = patient_handle
                 
         return self
     
     def set_duration(self, duration):
+        fsamps = [h.get_fsamp() for h in self._patient_handles.values()]
+        common_fsamp = max(set(fsamps), key=fsamps.count)
+        self._preprocessing.set_fsamp(common_fsamp)
+        self._common_sampling_rate = common_fsamp
+        
         for patient_handle in self._patient_handles.values():
+            patient_handle.set_fsamp(common_fsamp)
             patient_handle.set_duration(duration)
             
         self._lengths = [len(patient_handle) for patient_handle in self._patient_handles.values()]
@@ -532,6 +641,9 @@ class SpindleDataset(Dataset):
     def get_frequency_filter(self):
         return self._preprocessing.get_frequency_filter()
     
+    def get_num_channels(self):
+        return len(next(iter(self._patient_handles.values()))._output_channels)
+    
     def __len__(self):
         return sum(self._lengths)
 
@@ -547,3 +659,44 @@ class SpindleDataset(Dataset):
         
         return self._patient_handles[patient_id][idx]
 
+
+class SpindleDataModule(LightningDataModule):
+    def __init__(self, data_dir, duration, intracranial_only=True, batch_size: int = 64):
+        super().__init__()
+        self.dataset = SpindleDataset(only_intracranial_data=intracranial_only)
+        for file in os.listdir(data_dir):
+            if file.endswith('.csv'):
+                self.dataset.register_main_csv(os.path.join(data_dir, file))
+            elif file.endswith('.mefd'):
+                self.dataset.register_mefd_reader(os.path.join(data_dir, file))
+        self.dataset.set_duration(duration)
+        
+        self.batch_size = batch_size
+        
+    @staticmethod
+    def collate_fn(batch):
+        tensors = [item['data'] for item in batch]
+        metadata = [{k: v for k, v in item.items() if k != 'data'} for item in batch]
+
+        # Pad the tensors and convert to a single tensor
+        tensors = torch.stack([torch.from_numpy(t) for t in tensors], dim=0)
+
+        return tensors, metadata
+
+    def setup(self, stage=None):
+        # Randomly split dataset into train, validation and test set
+        train_len = int(len(self.dataset) * 0.7)
+        val_len = int(len(self.dataset) * 0.15)
+        test_len = len(self.dataset) - train_len - val_len
+        
+        torch.manual_seed(42)
+        self.train_set, self.val_set, self.test_set = random_split(self.dataset, [train_len, val_len, test_len])
+
+    def train_dataloader(self):
+        return DataLoader(self.train_set, collate_fn=self.collate_fn, batch_size=self.batch_size, shuffle=True)
+
+    def val_dataloader(self):
+        return DataLoader(self.val_set, collate_fn=self.collate_fn, batch_size=self.batch_size)
+
+    def test_dataloader(self):
+        return DataLoader(self.test_set, collate_fn=self.collate_fn, batch_size=self.batch_size)

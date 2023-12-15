@@ -15,6 +15,10 @@ class Evaluator:
         
         # true positives are the number of 1s in the intersection of y_true and y_pred
         tp = np.sum(y_true * y_pred)
+        
+        if tp == 0:
+            return 0
+        
         # false positives are the number of 1s in y_pred that are not in y_true
         fp = np.sum(y_pred) - tp
         # false negatives are the number of 1s in y_true that are not in y_pred
@@ -69,6 +73,39 @@ class Evaluator:
         for start, end in intervals:
             y[start:end+1] = 1
         return y
+    
+    @staticmethod
+    def intervals_time_to_indices(intervals: list[float, float], start_time: float, end_time:float, size):
+        for i in range(len(intervals)):
+            intervals[i] = (int((intervals[i][0] - start_time) * size / (end_time - start_time)),
+                            int((intervals[i][1] - start_time) * size / (end_time - start_time)))
+            
+    @staticmethod
+    def get_intervals_with_min_overlap(intervals, min_overlap):
+        # Create a list of tuples, each containing a time point and a value indicating whether it's a start or end point
+        events = [(start, 1) for start, _ in intervals] + [(end, -1) for _, end in intervals]
+        # Sort the list by time point
+        events.sort()
+
+        result = []
+        overlap_count = 0
+        prev_overlap_count = 0
+        start_interval = None
+        # Sweep through the sorted list
+        i = 0
+        while i < len(events):
+            prev_overlap_count = overlap_count
+            time_point = events[i][0]
+            while i < len(events) and events[i][0] == time_point:
+                overlap_count += events[i][1]
+                i += 1
+                
+            if overlap_count >= min_overlap and prev_overlap_count < min_overlap:
+                start_interval = time_point
+            elif overlap_count < min_overlap and prev_overlap_count >= min_overlap:
+                result.append((start_interval, time_point))
+
+        return result
         
     def __init__(self):
         self._metrics = []
