@@ -71,7 +71,7 @@ class Preprocessing:
         low /= nyquist
         high /= nyquist
         b, a = signal.butter(5, [low, high], btype='band')
-        return signal.lfilter(b, a, data)
+        return signal.filtfilt(b, a, data)
 
     def _apply_cwt(self, data):
         widths = np.arange(1, 10)
