@@ -27,6 +27,18 @@
             "program": "${workspaceFolder}/perform_analysis.py",
             "console": "integratedTerminal",
             "justMyCode": false
+        },
+        {
+            "name": "visualization",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/visualizer.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--icdata",
+                "--suppress-empty-channels"
+            ]
         }
     ]
 }

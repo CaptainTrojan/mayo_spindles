@@ -70,7 +70,7 @@ class Preprocessing:
         low, high = frequency_range
         low /= nyquist
         high /= nyquist
-        b, a = signal.butter(5, [low, high], btype='band')
+        b, a = signal.butter(7, [low, high], btype='band')
         return signal.filtfilt(b, a, data)
 
     def _apply_cwt(self, data):
@@ -130,7 +130,6 @@ class PatientHandle:
                  spindle_data_radius: int = 0,
                  report_analysis=False,
                  only_intracranial_data=True,
-                 pad_intracranial_channels=True
                  ):
         
         self._duration = None
@@ -144,19 +143,18 @@ class PatientHandle:
         self._spindle_data_radius = spindle_data_radius
         self._plot_path = 'plots'
         self._only_intracranial_data = only_intracranial_data
-        self._pad_intracranial_channels = pad_intracranial_channels
         self._reader = reader
         self._patient_id = patient_id
         self._emu_id = emu_id
         
         # channels for intracranial data e0-e1, e0-e2, ... so that they have fixed output indices
         self._possible_intracranial_channels = [
-            'e0-e1', 'e0-e2', 'e0-e3', 'e1-e2', 'e1-e3', 'e2-e3',
-            'e4-e5', 'e4-e6', 'e4-e7', 'e5-e6', 'e5-e7', 'e6-e7',
-            'e8-e9', 'e8-e10', 'e8-e11', 'e9-e10', 'e9-e11', 'e10-e11',
-            'e12-e13', 'e12-e14', 'e12-e15', 'e13-e14', 'e13-e15', 'e14-e15'
+            'e0-e1', 'e0-e2', 'e0-e3', 'e1-e2', 'e1-e3', 'e2-e3',  # LT
+            'e4-e5', 'e4-e6', 'e4-e7', 'e5-e6', 'e5-e7', 'e6-e7',  # LH
+            'e8-e9', 'e8-e10', 'e8-e11', 'e9-e10', 'e9-e11', 'e10-e11',  # RT
+            'e12-e13', 'e12-e14', 'e12-e15', 'e13-e14', 'e13-e15', 'e14-e15'  # RH
         ]
-        
+
         # all channels that exist in the reader
         self._existing_channels = self._reader.channels
         
@@ -169,11 +167,7 @@ class PatientHandle:
         self._channels_to_serve = self._existing_intracranial_channels if self._only_intracranial_data else self._existing_channels
         
         # all channels that will be served (including zero/padded channels that do not exist in the reader)
-        self._output_channels = []
-        if self._pad_intracranial_channels:
-            self._output_channels += self._possible_intracranial_channels
-        else:
-            self._output_channels += self._existing_intracranial_channels
+        self._output_channels = self._possible_intracranial_channels
         if not self._only_intracranial_data:
             self._output_channels += self._existing_other_channels
         
@@ -187,6 +181,55 @@ class PatientHandle:
         
         self._target_length = None
         self._fsamp = self.__calculate_fsamp()
+        
+    def _load_and_transform_data(self, start_time, end_time, channel):
+        data = self._reader.get_data(channel, int(start_time * 1e6), int(end_time * 1e6))
+        data = np.nan_to_num(data, nan=0.0)
+        if len(data) != self._target_length:
+            data = np.interp(np.linspace(0, 1, self._target_length), np.linspace(0, 1, len(data)), data)
+        return data
+    
+    def __getitem__(self, idx):
+        start_time, end_time = self._segments[idx]._start_time, self._segments[idx]._end_time
+
+        # extract channel data
+        all_data = []
+        for channel, exists in zip(self._possible_intracranial_channels, self._existing_intracranial_channels_mask):
+            if exists:
+                data = self._load_and_transform_data(start_time, end_time, channel)
+            else:
+                data = np.zeros(self._target_length)
+            all_data.append(data)
+        
+        # add other channels if needed
+        if not self._only_intracranial_data:        
+            for channel in self._existing_other_channels:
+                data = self._load_and_transform_data(start_time, end_time, channel)
+                all_data.append(data)
+        
+        data = np.stack(all_data, axis=0)
+        
+        # preprocess data
+        data = self._preprocessing(data)
+        
+        # fetch spindles
+        spindles = self._own_dataframe.iloc[self._segments[idx].spindles].copy()
+        # trim spindles to fit the segment
+        spindles['Start'] = spindles['Start'].apply(lambda x: max(x, start_time))
+        spindles['End'] = spindles['End'].apply(lambda x: min(x, end_time))
+        
+        if not self._preprocessing.get_apply_cwt():
+            assert len(self._output_channels) == data.shape[0], f"Expected {len(self._output_channels)} channels, got {data.shape[0]}"
+                
+        return {
+            'data': data,
+            'spindles': spindles.to_dict('list'),
+            'start_time': start_time,
+            'end_time': end_time,
+            'patient_id': self._patient_id, 
+            'emu_id': self._emu_id,
+            'channel_names': self._output_channels
+        }
         
     def analyse_reader(self):
         start_times = []
@@ -230,8 +273,19 @@ class PatientHandle:
                     rows_to_keep.append(row)
         df = pd.DataFrame(rows_to_keep, columns=header).sort_values(by=['Start'])
         
+        # numeric
         for col in ["Start","End"]:
             df[col] = pd.to_numeric(df[col])
+            
+        # boolean from "TRUE"/"FALSE"
+        for col in "Partic_MID,Detail,Partic_LT,Partic_RT,Partic_LH,Partic_RH,Partic_LC,Partic_RC".split(','):
+            df[col] = df[col] == "TRUE"
+            
+        # if Detail is False, drop row
+        df = df[df['Detail'] == True]
+        
+        # reset index
+        df = df.reset_index(drop=True)
                 
         return df
     
@@ -481,74 +535,18 @@ class PatientHandle:
 
     def __len__(self):
         return len(self._segments)
-    
-    def _load_and_transform_data(self, start_time, end_time, channel):
-        data = self._reader.get_data(channel, int(start_time * 1e6), int(end_time * 1e6))
-        data = np.nan_to_num(data, nan=0.0)
-        if len(data) != self._target_length:
-            data = np.interp(np.linspace(0, 1, self._target_length), np.linspace(0, 1, len(data)), data)
-        return data
-    
-    def __getitem__(self, idx):
-        start_time, end_time = self._segments[idx]._start_time, self._segments[idx]._end_time
-
-        # extract channel data
-        all_data = []
-        if self._pad_intracranial_channels:
-            for channel, exists in zip(self._possible_intracranial_channels, self._existing_intracranial_channels_mask):
-                if exists:
-                    data = self._load_and_transform_data(start_time, end_time, channel)
-                else:
-                    data = np.zeros(self._target_length)
-                all_data.append(data)
-        else:
-            for channel in self._existing_intracranial_channels:
-                data = self._load_and_transform_data(start_time, end_time, channel)
-                all_data.append(data)
-        
-        # add other channels if needed
-        if not self._only_intracranial_data:        
-            for channel in self._existing_other_channels:
-                data = self._load_and_transform_data(start_time, end_time, channel)
-                all_data.append(data)
-        
-        data = np.stack(all_data, axis=0)
-        
-        # preprocess data
-        data = self._preprocessing(data)
-        
-        # fetch spindles
-        spindles = self._own_dataframe.iloc[self._segments[idx].spindles].copy()
-        # trim spindles to fit the segment
-        spindles['Start'] = spindles['Start'].apply(lambda x: max(x, start_time))
-        spindles['End'] = spindles['End'].apply(lambda x: min(x, end_time))
-        
-        if not self._preprocessing.get_apply_cwt():
-            assert len(self._output_channels) == data.shape[0], f"Expected {len(self._output_channels)} channels, got {data.shape[0]}"
-        
-        return {
-            'data': data,
-            'spindles': spindles.to_dict('list'),
-            'start_time': start_time,
-            'end_time': end_time,
-            'patient_id': self._patient_id, 
-            'emu_id': self._emu_id,
-            'channel_names': self._output_channels
-        }
 
 
 class SpindleDataset(Dataset):
     def __init__(self, 
                  report_analysis=False,
                  only_intracranial_data=True,
-                 pad_intracranial_channels=True,
                  preprocessing: Preprocessing = PreprocessingStaticFactory.NO_PREPROCESSING()
                  ):
         self._patient_handles = {}
         self._lengths = []
         self._report_analysis = report_analysis
         self._only_intracranial_data = only_intracranial_data
-        self._pad_intracranial_channels = pad_intracranial_channels
         self._preprocessing = preprocessing
         self._unregistered_readers = []
         self._common_sampling_rate = 0
@@ -603,7 +601,6 @@ class SpindleDataset(Dataset):
                                        preprocessing=self._preprocessing,
                                        report_analysis=self._report_analysis,
                                        only_intracranial_data=self._only_intracranial_data,
-                                       pad_intracranial_channels=self._pad_intracranial_channels
                                        )
         self._patient_handles[(patient_id, emu_id)] = patient_handle
                 
