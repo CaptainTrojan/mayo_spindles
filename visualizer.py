@@ -11,6 +11,7 @@ import argparse
 from dataloader import SpindleDataset
 from evaluator import Evaluator
 import yasa_util
+from PyQt5.QtGui import QTextCursor, QFont
 
 class Visualizer(QMainWindow):
     def __init__(self, dataset: SpindleDataset, suppress_empty_channels: bool):
@@ -21,7 +22,7 @@ class Visualizer(QMainWindow):
         self._display_mode = 'channels'  # or 'matrix'
         self._cwt_interval = 0
         self._evaluator = Evaluator()
-        self._evaluator.add_metric('f1', Evaluator.interval_f_measure)
+        self._evaluator.add_metric('f1', Evaluator.INTERVAL_F_MEASURE)
         # self._evaluator.add_metric('hit_rate', Evaluator.interval_hit_rate)
 
         # Create a QWidget as the central widget of the QMainWindow
@@ -38,9 +39,11 @@ class Visualizer(QMainWindow):
         self.canvas = FigureCanvas(plt.Figure(figsize=(12, 4)))
 
         # Create a QLabel to display the status
+        self.status_messages = []
+        self.status_message_limit = 1
         self.status_text = QTextEdit(self)
         self.status_text.setReadOnly(True)  # Make it read-only
-        self.status_text.setMaximumHeight(200)  # Set maximum height to desired value
+        self.status_text.setFixedHeight(280)  # Set height to desired value
 
         self.layout.addWidget(self.canvas)
         self.layout.addWidget(self.status_text)
@@ -105,7 +108,13 @@ class Visualizer(QMainWindow):
         self.show_element()
         
     def set_status(self, text):
-        self.status_text.setText(text)
+        self.status_messages.append(text)
+        self.status_messages = self.status_messages[-self.status_message_limit:]
+        separator = '\n'
+        self.status_text.setText(separator.join(self.status_messages))
+        
+        # auto scroll to bottom
+        self.status_text.moveCursor(QTextCursor.End)
         
     def keyPressEvent(self, ev) -> None:
         key = ev.key()
@@ -210,9 +219,13 @@ class Visualizer(QMainWindow):
             predictions["yasa"] = y_pred
             
             metadata = {k: v for k, v in elem.items() if k != 'data'}
-            performance_report = self._evaluator.evaluate(metadata, y_pred)
+            self._evaluator.evaluate(metadata, y_pred)
+            performance_report = self._evaluator.results()['f1']
             self._evaluator.reset()
-            self.set_status(f"YASA: {performance_report['f1']}")
+            
+            text_report = f"YASA: \n{performance_report[0]}\n\n{performance_report[1]}\n"
+            
+            self.set_status(text_report)
         
         channel_names = [f"{name}_{class_annotation}" for name, class_annotation in zip(elem['channel_names'], Evaluator.CHANNEL_TO_CLASS_NAME)]
         if self._suppress_empty_channels:
@@ -287,9 +300,12 @@ class Visualizer(QMainWindow):
         tensor = elem['data']
         metadata = {k: v for k, v in elem.items() if k != 'data'}
         sf = self._dataset._common_sampling_rate
-        rel_pow = 0.1
-        corr = 0.5
-        rms = 1.3
+        
+        best_params = {'rel_pow': 0.21600663285477278, 'corr': 0.5823861363147037, 'rms': 1.000872131100885}
+        
+        rel_pow = best_params['rel_pow']
+        corr = best_params['corr']
+        rms = best_params['rms']
             
         y_pred = yasa_util.yasa_predict(tensor, metadata, sf, rel_pow, corr, rms)
         return y_pred
@@ -353,6 +369,9 @@ if __name__ == '__main__':
         .set_duration(30)
     
     app = QApplication(sys.argv)
+    font = QFont()
+    font.setPointSize(12)  # Set the font size to 12
+    app.setFont(font)
     visualizer = Visualizer(dataset, args.suppress_empty_channels)
     visualizer.show()
     sys.exit(app.exec_())

@@ -34,22 +34,23 @@ def evaluate_yasa(datamodule, sf, evaluator: Evaluator, rel_pow, corr, rms):
             
         evaluator.evaluate(metadata, y_pred)
         
-    df = evaluator.results()['f1']
-    only_fmeasure_strings = df['f-measure'].values.tolist()
-    means = [float(s.split(' ± ')[0]) for s in only_fmeasure_strings]
+    micro_macro_df = evaluator.results()['f1'][1]
+    
+    # micro_f1 is row 'micro-average' and column 'f-measure'
+    micro_f1 = micro_macro_df.loc['micro-average', 'f-measure']
     evaluator.reset()
     
-    return np.mean(means)
+    return micro_f1
 
 
 def main():
-    datamodule = SpindleDataModule('data', 30, intracranial_only=False, batch_size=1)
+    datamodule = SpindleDataModule('data', 30, batch_size=1)
     datamodule.setup()
     
     sf = datamodule.dataset._common_sampling_rate
     
     evaluator = Evaluator()
-    evaluator.add_metric('f1', Evaluator.interval_f_measure)
+    evaluator.add_metric('f1', Evaluator.INTERVAL_F_MEASURE)
     # evaluator.add_metric('hit_rate', Evaluator.interval_hit_rate)
     
     # res = evaluate_yasa(datamodule, sf, evaluator, 0.1, 0.5, 1.3)
@@ -63,7 +64,7 @@ def main():
         storage='sqlite:///yasa.db',
         load_if_exists=True,
     )
-    study.optimize(lambda trial: objective(trial, datamodule, sf, evaluator), n_trials=1000)
+    study.optimize(lambda trial: objective(trial, datamodule, sf, evaluator), n_trials=1000, show_progress_bar=True)
     
     print('Best trial:')
     trial = study.best_trial

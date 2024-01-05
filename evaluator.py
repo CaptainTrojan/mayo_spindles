@@ -5,13 +5,126 @@ from scipy import stats
 np.seterr(divide='ignore')
 
 
+# def interval_hit_rate(y_true: np.ndarray, y_pred: np.ndarray):
+#     # y_true and y_pred are binary arrays
+#     # y_true is the ground truth
+#     # y_pred is the prediction
+#     raise NotImplementedError("This method is not implemented yet")
+
+#     if Evaluator.is_array_empty(y_true):
+#         return None
+    
+#     num_intervals = 0
+#     num_hits = 0
+#     y_true = y_true.copy()
+#     interval_start = -1
+#     for i in range(len(y_pred)):
+#         if y_true[i] == 1:
+#             if interval_start == -1:
+#                 interval_start = i
+#                 num_intervals += 1
+#             if y_pred[i] == 1:
+#                 num_hits += 1
+#                 # flood fill y_true with 0s
+#                 j = interval_start
+#                 while j < len(y_true) and y_true[j] == 1:
+#                     y_true[j] = 0
+#                     j += 1
+#                 interval_start = -1
+#         else:
+#             interval_start = -1
+                
+#     return num_hits / num_intervals
+
+
 def finalizing(cls):
      cls.__finalize__(cls)
      del cls.__finalize__
-     return cls
+     return cls 
+ 
+ 
+class Metric:
+    def __init__(self, name):
+        self.name = name
+        self.reset()
+        
+    def __call__(self, y_true, y_pred) -> None:
+        raise NotImplementedError("This method is not implemented yet")
+    
+    def results(self) -> list[pd.DataFrame]:
+        raise NotImplementedError("This method is not implemented yet")
+    
+    def reset(self):
+        raise NotImplementedError("This method is not implemented yet")
+    
+    def __len__(self):
+        raise NotImplementedError("This method is not implemented yet")
+    
+    def __str__(self):
+        raise NotImplementedError("This method is not implemented yet")
+    
+    def __repr__(self):
+        return str(self)
+
+
+class IntervalFMeasure(Metric):        
+    def __call__(self, y_true, y_pred):
+        # y_true and y_pred are binary arrays of shape (num_classes, num_samples)
+        # y_true is the ground truth
+        # y_pred is the prediction
+        # returns the precision, recall and f-measure for each class as a pandas dataframe
+        
+        # true positives are the number of 1s in the intersection of y_true and y_pred
+        tp = np.sum(np.logical_and(y_true, y_pred), axis=1)
+        tp_plus_fp = np.sum(y_pred, axis=1)
+        tp_plus_fn = np.sum(y_true, axis=1)
+
+        self._tp.append(tp)
+        self._tp_plus_fp.append(tp_plus_fp)
+        self._tp_plus_fn.append(tp_plus_fn)
+    
+    def results(self):
+        precision = np.sum(self._tp, axis=0) / np.sum(self._tp_plus_fp, axis=0)
+        recall = np.sum(self._tp, axis=0) / np.sum(self._tp_plus_fn, axis=0)
+        f_measure = np.where(np.isnan(precision) | np.isnan(recall), np.nan, 2 * np.sum(self._tp, axis=0) / (np.sum(self._tp_plus_fp, axis=0) + np.sum(self._tp_plus_fn, axis=0)))
+
+        raw = pd.DataFrame({
+            'precision': precision,
+            'recall': recall,
+            'f-measure': f_measure
+        }, index=Evaluator.CLASSES_INV)
+        
+        macro_average = pd.DataFrame({
+            'precision': np.mean(raw['precision']),
+            'recall': np.mean(raw['recall']),
+            'f-measure': np.mean(raw['f-measure'])
+        }, index=['macro-average'])
+        
+        micro_average = pd.DataFrame({
+            'precision': np.sum(self._tp) / np.sum(self._tp_plus_fp),
+            'recall': np.sum(self._tp) / np.sum(self._tp_plus_fn),
+            'f-measure': 2 * np.sum(self._tp) / (np.sum(self._tp_plus_fp) + np.sum(self._tp_plus_fn))
+        }, index=['micro-average'])
+        
+        micro_macro_average = pd.concat([micro_average, macro_average])
+        return [raw, micro_macro_average]
+    
+    def reset(self):
+        self._tp = []
+        self._tp_plus_fp = []
+        self._tp_plus_fn = []
+        
+    def __str__(self):
+        return f"{self.name} ({len(self._tp)} samples)"
+    
+    def __len__(self):
+        return len(self._tp)
+
 
 @finalizing
 class Evaluator:
+    INTERVAL_F_MEASURE = IntervalFMeasure
+    
     POSSIBLE_INTRACRANIAL_CHANNELS = [
         'e0-e1', 'e0-e2', 'e0-e3', 'e1-e2', 'e1-e3', 'e2-e3',  # LT
         'e4-e5', 'e4-e6', 'e4-e7', 'e5-e6', 'e5-e7', 'e6-e7',  # LH
@@ -61,74 +174,6 @@ class Evaluator:
     
     def __finalize__(me):
         me.CHANNEL_TO_CLASS_NAME = [me.CLASSES_INV[CLASS] for _, CLASS in me.CHANNEL_TO_CLASS.items()]
-
-    
-    @staticmethod
-    def interval_hit_rate(y_true: np.ndarray, y_pred: np.ndarray):
-        # y_true and y_pred are binary arrays
-        # y_true is the ground truth
-        # y_pred is the prediction
-        raise NotImplementedError("This method is not implemented yet")
-
-        if Evaluator.is_array_empty(y_true):
-            return None
-        
-        num_intervals = 0
-        num_hits = 0
-        y_true = y_true.copy()
-        interval_start = -1
-        for i in range(len(y_pred)):
-            if y_true[i] == 1:
-                if interval_start == -1:
-                    interval_start = i
-                    num_intervals += 1
-                if y_pred[i] == 1:
-                    num_hits += 1
-                    # flood fill y_true with 0s
-                    j = interval_start
-                    while j < len(y_true) and y_true[j] == 1:
-                        y_true[j] = 0
-                        j += 1
-                    interval_start = -1
-            else:
-                interval_start = -1
-                    
-        return num_hits / num_intervals
-    
-    @staticmethod
-    def interval_f_measure(y_true: np.ndarray, y_pred: np.ndarray) -> pd.DataFrame:
-        # y_true and y_pred are binary arrays of shape (num_classes, num_samples)
-        # y_true is the ground truth
-        # y_pred is the prediction
-        # returns the precision, recall and f-measure for each class as a pandas dataframe
-        
-        # true positives are the number of 1s in the intersection of y_true and y_pred
-        tp = np.sum(np.logical_and(y_true, y_pred), axis=1)
-        
-        tp_plus_fp = np.sum(y_pred, axis=1)
-        tp_plus_fn = np.sum(y_true, axis=1)
-
-        # If no positives are found in both y_true and y_pred, then the f-measure is undefined
-        ignore_mask = np.logical_and(tp_plus_fp == 0, tp_plus_fn == 0)
-        
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            # precision is the number of true positives divided by the number of true positives and false positives
-            precision = np.nan_to_num(tp / tp_plus_fp)
-            # recall is the number of true positives divided by the number of true positives and false negatives
-            recall = np.nan_to_num(tp / tp_plus_fn)
-            # f-measure is the harmonic mean of precision and recall
-            f_measure = np.nan_to_num(2 * precision * recall / (precision + recall))
-        
-        # compose the dataframe
-        df = pd.DataFrame({
-            'precision': precision,
-            'recall': recall,
-            'f-measure': f_measure,
-            'ignore_mask': ignore_mask
-        }, index=Evaluator.CLASSES_INV[:y_true.shape[0]])
-        
-        return df
     
     @staticmethod
     def is_array_empty(y: np.ndarray):
@@ -194,25 +239,17 @@ class Evaluator:
         
     def __init__(self):
         self._metrics = []
-        self._metrics_names = []
-        self._metrics_values = []
         
-    def add_metric(self, name, metric):
+    def add_metric(self, name, metric_cls: type[Metric]):
+        metric = metric_cls(name)
         self._metrics.append(metric)
-        self._metrics_names.append(name)
-        self._metrics_values.append([])
         
     def evaluate(self, true_metadata: dict, y_pred: np.ndarray):
         classes_pred = Evaluator.binary_signal_to_classes(y_pred)
         classes_true = Evaluator.metadata_to_classes(true_metadata, classes_pred.shape[1])
             
-        ret = {}
-        for i, metric in enumerate(self._metrics):
-            result = metric(classes_true, classes_pred)
-            if result is not None:
-                self._metrics_values[i].append(result)
-                ret[self._metrics_names[i]] = result
-        return ret
+        for metric in self._metrics:
+            metric(classes_true, classes_pred)
     
     def evaluate_intervals(self, y_true:list[int, int], y_pred:list[int, int], size):
         # first convert intervals to binary numpy arrays
@@ -222,42 +259,27 @@ class Evaluator:
         return self.evaluate(y_true, y_pred)
         
     def results(self):
-        """
-        Since all metrics are dataframes, the result is also a dataframe, except that
-        it contains mean estimates and confidence intervals for each field in the original dataframe
-        """
         # Initialize an empty dict
         ret = {}
         
         # Iterate over each metric in the list
-        for name, values in zip(self._metrics_names, self._metrics_values):
-            if len(values) == 0:
+        for metric in self._metrics:
+            if len(metric) == 0:
+                warnings.warn(f"Metric {metric.name} has no results")
                 continue
-                        
-            # Concatenate all dataframes along the 0 axis (vertically)
-            df_concat = pd.concat(values, axis=0)
-
-            # Filter out rows where ignore_mask is True
-            df_concat = df_concat[~df_concat['ignore_mask']]
-
-            # Group by index (which is the class in your case)
-            grouped = df_concat.groupby(level=0)
-
-            # Calculate mean and confidence interval for each group
-            metric_result = grouped.apply(lambda group: pd.Series({
-                column: f"{group[column].mean():.02} ± {stats.sem(group[column]) * stats.t.ppf((1 + 0.95) / 2., len(group[column])-1):.02}"
-                for column in group.columns if column != 'ignore_mask'
-            }))
-
-            ret[name] = metric_result
+            
+            # Get the results of the metric
+            results = metric.results()
+            
+            # Add the results to the dict
+            ret[metric.name] = results
 
         return ret
 
             
     def reset(self):
-        self._metrics_values = []
-        for _ in self._metrics:
-            self._metrics_values.append([])
+        for metric in self._metrics:
+            metric.reset()
             
     def __str__(self):
         return str(self.results())
