@@ -1,0 +1,5 @@
+c_in: 24
+c_out: 7
+seq_len: 7200
+hidden_size: 64
+activation: ReLU
