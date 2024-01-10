@@ -1,4 +1,4 @@
-from ..dataloader import PatientHandle, SpindleDataset
+from mayo_spindles.dataloader import PatientHandle, SpindleDataset
 import types
 
 

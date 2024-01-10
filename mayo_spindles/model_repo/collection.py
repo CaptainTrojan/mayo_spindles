@@ -2,12 +2,13 @@ import os
 from typing import Any
 import torch
 import yaml
-from model_repo.base import BaseModel
-from model_repo.basic_models import CNNModel, GRUModel, LSTMModel, MLPModel, RNNModel
+from .base import BaseModel
+from .basic_models import CNNModel, GRUModel, LSTMModel, MLPModel, RNNModel
+from .tslib_models import *
 
 
 class Config:
-    def __init__(self, model_name=None, root_dir='resources', default_filename='default_config.yaml'):
+    def __init__(self, model_name=None, root_dir='mayo_spindles/resources', default_filename='default_config.yaml'):
         default_config_path = os.path.join(root_dir, default_filename)
         try:
             with open(default_config_path, 'r') as file:
@@ -26,10 +27,10 @@ class Config:
         return self.config.get(key, default)
 
     def __getitem__(self, key):
-        return self.config[key]
+        return self.config.get(key, None)
     
     def __getattr__(self, key):
-        return self.config[key]
+        return self[key]
 
 
 class ModelRepository:
@@ -41,6 +42,22 @@ class ModelRepository:
         self.register("rnn", RNNModel)
         self.register("gru", GRUModel)
         self.register("lstm", LSTMModel)
+
+        # tslib models
+        for model_file in globals():
+            if model_file.endswith("TSLIBModel"):
+                self.register(model_file[:-10].lower(), globals()[model_file])
+
+    def __len__(self):
+        return len(self.models)
+
+    def overview(self):
+        print(f"ModelRepository with {len(self)} models:")
+        for name, model_class in self.models.items():
+            print(f"  {name}: {model_class}")
+    
+    def get_model_names(self):
+        return list(self.models.keys())
 
     def register(self, name, model_class):
         if not issubclass(model_class, BaseModel):
@@ -56,16 +73,17 @@ class ModelRepository:
         model = model_class(config)
 
         # Create a dummy tensor
-        dummy_input = torch.randn(1, config.c_in, config.seq_len)
+        dummy_input = torch.randn(1, config.seq_len, config.c_in)
 
         try:
             # Try to pass the tensor through the model
             output = model(dummy_input)
         except Exception:
-            raise ValueError("Model could not process input of size (B, c_in, seq_len)")
+            raise ValueError(f"Model could not process input of size {dummy_input.size()}")
 
         # Check the output size
-        if output.size() != torch.Size([1, config.c_out, config.seq_len]):
-            raise ValueError("Model output is not of size (B, c_out, seq_len)")
+        expected_output_size = torch.Size([1, config.seq_len, config.c_out])
+        if output.size() != expected_output_size:
+            raise ValueError(f"Model output is not of size {expected_output_size} and is instead of size {output.size()}")
 
         return model

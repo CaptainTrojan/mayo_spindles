@@ -1,5 +1,32 @@
 c_in: 24
+enc_in: 24
+dec_in: 7
 c_out: 7
 seq_len: 7200
 hidden_size: 64
-activation: ReLU
+activation: 'gelu'
+num_layers: 2
+
+# TSLib config
+
+task_name: 'anomaly_detection'
+label_len: 7200
+pred_len: 7200
+inverse: false
+mask_rate: 1
+anomaly_ratio: 1
+top_k: 5
+num_kernels: 6
+d_model: 512
+n_heads: 8
+e_layers: 2
+d_layers: 1
+d_ff: 2048
+moving_avg: 25
+factor: 1
+distil: true
+dropout: 0.1
+output_attention: false
+channel_independence: 0
+p_hidden_dims: [128, 128]
+p_hidden_layers: 2

@@ -1,6 +1,16 @@
 import torch.nn as nn
-from model_repo.base import BaseModel
+from .base import BaseModel
 import torch
+
+
+ACTIVATIONS = {
+    'gelu': nn.GELU,
+    'relu': nn.ReLU,
+    'leaky_relu': nn.LeakyReLU,
+    'tanh': nn.Tanh,
+    'sigmoid': nn.Sigmoid,
+    'identity': nn.Identity,
+}
 
 
 class MLPModel(BaseModel):
@@ -8,47 +18,48 @@ class MLPModel(BaseModel):
         super().__init__(config)
         self.fc1 = nn.Linear(config['c_in'], config['hidden_size'])
         self.fc2 = nn.Linear(config['hidden_size'], config['c_out'])
-        self.activation = getattr(nn, config['activation'])()
+        self.activation = ACTIVATIONS[config['activation']]()
 
     def forward(self, x):
-        x = x.view(x.size(0), -1)
         x = self.activation(self.fc1(x))
         x = self.fc2(x)
-        return x.view(x.size(0), self.config['c_out'], -1)
-
+        return x
+    
 class CNNModel(BaseModel):
     def __init__(self, config):
         super().__init__(config)
         self.conv1 = nn.Conv1d(config['c_in'], config['c_out'], kernel_size=config['kernel_size'], padding=config['padding'])
-        self.activation = getattr(nn, config['activation'])()
+        self.activation = ACTIVATIONS[config['activation']]()
 
     def forward(self, x):
+        x = x.transpose(1,2)
         x = self.activation(self.conv1(x))
+        x = x.transpose(1,2)
         return x
 
-class RNNModel(BaseModel):
-    def __init__(self, config):
+class RNNBaseModel(BaseModel):
+    def __init__(self, config, cell_cls):
         super().__init__(config)
-        self.rnn = nn.RNN(config['c_in'], config['c_out'], batch_first=True)
+        self.activation = ACTIVATIONS[config['activation']]()
+        self.rnn = cell_cls(config['c_in'], config.hidden_size, 
+                            dropout=config.dropout, batch_first=True, 
+                            bidirectional=True, num_layers=config.num_layers)
+        self.fc = nn.Linear(config.hidden_size*2, config.c_out)
 
     def forward(self, x):
         x, _ = self.rnn(x)
+        x = self.activation(x)
+        x = self.fc(x)
         return x
 
-class GRUModel(BaseModel):
+class RNNModel(RNNBaseModel):
     def __init__(self, config):
-        super().__init__(config)
-        self.rnn = nn.GRU(config['c_in'], config['c_out'], batch_first=True)
+        super().__init__(config, nn.RNN)
 
-    def forward(self, x):
-        x, _ = self.rnn(x)
-        return x
-
-class LSTMModel(BaseModel):
+class GRUModel(RNNBaseModel):
     def __init__(self, config):
-        super().__init__(config)
-        self.rnn = nn.LSTM(config['c_in'], config['c_out'], batch_first=True)
+        super().__init__(config, nn.GRU)
 
-    def forward(self, x):
-        x, _ = self.rnn(x)
-        return x
+class LSTMModel(RNNBaseModel):
+    def __init__(self, config):
+        super().__init__(config, nn.LSTM)

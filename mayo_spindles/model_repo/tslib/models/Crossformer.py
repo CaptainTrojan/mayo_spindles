@@ -2,10 +2,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange, repeat
-from layers.Crossformer_EncDec import scale_block, Encoder, Decoder, DecoderLayer
-from layers.Embed import PatchEmbedding
-from layers.SelfAttention_Family import AttentionLayer, FullAttention, TwoStageAttentionLayer
-from models.PatchTST import FlattenHead
+from ..layers.Crossformer_EncDec import scale_block, Encoder, Decoder, DecoderLayer
+from ..layers.Embed import PatchEmbedding
+from ..layers.SelfAttention_Family import AttentionLayer, FullAttention, TwoStageAttentionLayer
+from ..models.PatchTST import FlattenHead
 
 
 from math import ceil
@@ -71,6 +71,7 @@ class Model(nn.Module):
         if self.task_name == 'imputation' or self.task_name == 'anomaly_detection':
             self.head = FlattenHead(configs.enc_in, self.head_nf, configs.seq_len,
                                     head_dropout=configs.dropout)
+            self.last_transform = nn.Linear(configs.enc_in, configs.c_out)
         elif self.task_name == 'classification':
             self.flatten = nn.Flatten(start_dim=-2)
             self.dropout = nn.Dropout(configs.dropout)
@@ -100,7 +101,6 @@ class Model(nn.Module):
         enc_out, attns = self.encoder(x_enc)
 
         dec_out = self.head(enc_out[-1].permute(0, 1, 3, 2)).permute(0, 2, 1)
-
         return dec_out
 
     def anomaly_detection(self, x_enc):
@@ -112,6 +112,7 @@ class Model(nn.Module):
         enc_out, attns = self.encoder(x_enc)
 
         dec_out = self.head(enc_out[-1].permute(0, 1, 3, 2)).permute(0, 2, 1)
+        dec_out = self.last_transform(dec_out)
         return dec_out
 
     def classification(self, x_enc, x_mark_enc):

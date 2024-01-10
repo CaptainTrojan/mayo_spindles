@@ -1,5 +1,5 @@
-from ..yasa_util import yasa_predict
-from ..dataloader import SpindleDataModule
+from mayo_spindles.yasa_util import yasa_predict
+from mayo_spindles.dataloader import SpindleDataModule
 
 
 def test_yasa_predict():
