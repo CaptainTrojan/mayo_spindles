@@ -1,7 +1,7 @@
 import pytorch_lightning as pl
 import torch
 
-from cdil import CDIL
+from model_repo.cdil import CDIL
 
 class SpindleDetector(pl.LightningModule):
     MODES = ('binary_classifier', 'start_end_classifier')
