@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import torchvision.ops
 from torch.nn.utils.weight_norm import weight_norm
 from tqdm import tqdm
+from .base import BaseModel
 
 
 class DeformableConv2d(nn.Module):
@@ -117,7 +118,23 @@ class CDIL(nn.Module):
         channels[0] = input_channels
         channels[-1] = output_channels
 
-        self.conv = ConvPart('dict-cdil', channels, kernel_size, True, True)
+        self.conv = ConvPart('dict-cdil', channels, kernel_size)
 
     def forward(self, x):
         return self.conv(x)
+
+
+class CDILModel(BaseModel):
+    def __init__(self, config):
+        super().__init__(config)
+        self.model = CDIL(
+            input_channels=config.c_in,
+            hidden_channels=config.hidden_channels,
+            output_channels=config.c_out,
+            num_layers=config.num_layers,
+        )
+
+    def forward(self, x):
+        x = x.transpose(1, 2)
+        y = self.model(x)
+        return y.transpose(1, 2)

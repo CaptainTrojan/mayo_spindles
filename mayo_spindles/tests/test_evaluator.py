@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from mayo_spindles.evaluator import Evaluator
+from ..evaluator import Evaluator
 
 @pytest.fixture
 def evaluator():

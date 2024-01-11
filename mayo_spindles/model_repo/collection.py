@@ -2,6 +2,9 @@ import os
 from typing import Any
 import torch
 import yaml
+
+from mayo_spindles.model_repo.cdil import CDILModel
+from mayo_spindles.yasa_util import OutputSuppressor
 from .base import BaseModel
 from .basic_models import CNNModel, GRUModel, LSTMModel, MLPModel, RNNModel
 from .tslib_models import *
@@ -42,6 +45,8 @@ class ModelRepository:
         self.register("rnn", RNNModel)
         self.register("gru", GRUModel)
         self.register("lstm", LSTMModel)
+        
+        self.register("cdil", CDILModel)
 
         # tslib models
         for model_file in globals():
@@ -70,7 +75,8 @@ class ModelRepository:
             raise ValueError(f"No model registered with name {name}")
     
         config = Config(model_name=name)
-        model = model_class(config)
+        with OutputSuppressor():
+            model = model_class(config)
 
         # Create a dummy tensor
         dummy_input = torch.randn(1, config.seq_len, config.c_in)
@@ -78,8 +84,8 @@ class ModelRepository:
         try:
             # Try to pass the tensor through the model
             output = model(dummy_input)
-        except Exception:
-            raise ValueError(f"Model could not process input of size {dummy_input.size()}")
+        except Exception as e:
+            raise ValueError(f"Model could not process input of size {dummy_input.size()} due to {e}")
 
         # Check the output size
         expected_output_size = torch.Size([1, config.seq_len, config.c_out])

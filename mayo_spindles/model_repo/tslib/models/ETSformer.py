@@ -24,6 +24,8 @@ class Model(nn.Module):
         # Embedding
         self.enc_embedding = DataEmbedding(configs.enc_in, configs.d_model, configs.embed, configs.freq,
                                            configs.dropout)
+        
+        self.last_projection = nn.Linear(configs.enc_in, configs.c_out)
 
         # Encoder
         self.encoder = Encoder(
@@ -74,7 +76,8 @@ class Model(nn.Module):
         res = self.enc_embedding(x_enc, None)
         level, growths, seasons = self.encoder(res, x_enc, attn_mask=None)
         growth, season = self.decoder(growths, seasons)
-        preds = level[:, -1:] + growth + season
+        L = self.last_projection(level[:, -1:])
+        preds = L + growth + season
         return preds
 
     def classification(self, x_enc, x_mark_enc):

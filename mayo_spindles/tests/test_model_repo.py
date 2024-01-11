@@ -1,6 +1,6 @@
 import pytest
 
-from mayo_spindles.model_repo.collection import ModelRepository
+from ..model_repo.collection import ModelRepository
 
 @pytest.fixture
 def model_repo():
