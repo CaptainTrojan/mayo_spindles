@@ -258,7 +258,7 @@ class Visualizer(QMainWindow):
             axs[i].label_outer()  # Hide x labels and tick labels for all but bottom plot.
             # no y ticks, just channel name on the left
             axs[i].set_yticks([])
-            axs[i].set_ylabel(channel_names[i], rotation=0, va='center', ha='right', fontsize=7)
+            axs[i].set_ylabel(channel_names[i], rotation=0, va='center', ha='right', fontsize=12)
             
             axs[i].set_xticks([elem['start_time'], elem['end_time']])
             axs[i].set_xticklabels([start_time, end_time])
