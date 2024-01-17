@@ -2,6 +2,7 @@ import warnings
 import numpy as np
 import pandas as pd
 from scipy import stats
+import torch
 np.seterr(divide='ignore')
 
 
@@ -69,15 +70,20 @@ class Metric:
 
 class IntervalFMeasure(Metric):        
     def __call__(self, y_true, y_pred):
-        # y_true and y_pred are binary arrays of shape (num_classes, num_samples)
+        if isinstance(y_true, torch.Tensor):
+            y_true = y_true.detach().cpu().numpy()
+            
+        if isinstance(y_pred, torch.Tensor):
+            y_pred = y_pred.detach().cpu().numpy()
+            
+        # y_true and y_pred are binary arrays of shape (batch_size, num_classes, num_samples)
         # y_true is the ground truth
         # y_pred is the prediction
-        # returns the precision, recall and f-measure for each class as a pandas dataframe
         
         # true positives are the number of 1s in the intersection of y_true and y_pred
-        tp = np.sum(np.logical_and(y_true, y_pred), axis=1)
-        tp_plus_fp = np.sum(y_pred, axis=1)
-        tp_plus_fn = np.sum(y_true, axis=1)
+        tp = np.sum(np.logical_and(y_true, y_pred), axis=2).sum(axis=0)
+        tp_plus_fp = np.sum(y_pred, axis=2).sum(axis=0)
+        tp_plus_fn = np.sum(y_true, axis=2).sum(axis=0)
 
         self._tp.append(tp)
         self._tp_plus_fp.append(tp_plus_fp)
@@ -115,7 +121,7 @@ class IntervalFMeasure(Metric):
         self._tp_plus_fn = []
         
     def __str__(self):
-        return f"{self.name} ({len(self._tp)} samples)"
+        return f"{self.name} ({len(self._tp)} batches)"
     
     def __len__(self):
         return len(self._tp)
@@ -193,16 +199,30 @@ class Evaluator:
                             int((intervals[i][1] - start_time) * size / (end_time - start_time)))
             
     @classmethod
-    def binary_signal_to_classes(cls, x: np.ndarray):
-        y = np.zeros((len(cls.CLASSES), x.shape[1]), dtype=np.uint8)
-        for channel, label in cls.CHANNEL_TO_CLASS.items():
-            if channel >= x.shape[0]:
-                continue
-            np.logical_or(y[label], x[channel], out=y[label])
+    def binary_signal_to_classes(cls, x: np.ndarray | torch.Tensor):
+        if isinstance(x, torch.Tensor):
+            y = torch.zeros((len(cls.CLASSES), x.shape[1]), dtype=torch.uint8, device=x.device)
+            for channel, label in cls.CHANNEL_TO_CLASS.items():
+                if channel >= x.shape[0]:
+                    continue
+                torch.logical_or(y[label], x[channel], out=y[label])
+        else:
+            y = np.zeros((len(cls.CLASSES), x.shape[1]), dtype=np.uint8)
+            for channel, label in cls.CHANNEL_TO_CLASS.items():
+                if channel >= x.shape[0]:
+                    continue
+                np.logical_or(y[label], x[channel], out=y[label])
         return y
     
     @classmethod
-    def metadata_to_classes(cls, metadata: dict, size: int):
+    def batch_binary_signal_to_classes(cls, x: torch.Tensor):
+        ys = []
+        for i in range(x.shape[0]):
+            ys.append(cls.binary_signal_to_classes(x[i]))
+        return torch.stack(ys)
+    
+    @classmethod
+    def metadata_to_classes(cls, metadata: dict, size: int, use_torch=False):
         """
         Spindle header: MH_ID,M_ID,EMU_Stay,Annotation,Start,End,Duration,Frequency,Preceded_IED,Preceded_SO,Laterality_T,Laterality_H,Laterality_C,Partic_MID,Detail,Partic_LT,Partic_RT,Partic_LH,Partic_RH,Partic_LC,Partic_RC,
         Metadata: {
@@ -215,7 +235,9 @@ class Evaluator:
             'channel_names': self._output_channels
         }
         """
-        y = np.zeros((len(cls.CLASSES), size), dtype=np.uint8)
+        F = np if not use_torch else torch
+        
+        y = F.zeros((len(cls.CLASSES), size), dtype=F.uint8 if not use_torch else F.float32)
         start_time = metadata['start_time']
         end_time = metadata['end_time']
         
@@ -229,6 +251,13 @@ class Evaluator:
             y[class_mask, start:end+1] = 1
         
         return y
+    
+    @classmethod
+    def batch_metadata_to_classes(cls, metadata_list: list[dict], size: int):
+        ys = []
+        for metadata in metadata_list:
+            ys.append(cls.metadata_to_classes(metadata, size, use_torch=True))
+        return torch.stack(ys)
     
     @classmethod
     def classes_to_binary_signal(cls, y: np.ndarray):
@@ -250,6 +279,21 @@ class Evaluator:
             
         for metric in self._metrics:
             metric(classes_true, classes_pred)
+            
+    def batch_evaluate(self, true_metadata: list[dict], y_pred: torch.Tensor):
+        classes_pred = Evaluator.batch_binary_signal_to_classes(y_pred)
+        classes_true = Evaluator.batch_metadata_to_classes(true_metadata, classes_pred.shape[2])
+            
+        for metric in self._metrics:
+            metric(classes_true, classes_pred)
+            
+    def batch_evaluate_no_conversion(self, y_true: torch.Tensor, y_pred: torch.Tensor):
+        for metric in self._metrics:
+            metric(y_true, y_pred)
+    
+    @staticmethod
+    def batch_get_classes_true(true_metadata: list[dict], size: int):
+        return Evaluator.batch_metadata_to_classes(true_metadata, size)
     
     def evaluate_intervals(self, y_true:list[int, int], y_pred:list[int, int], size):
         # first convert intervals to binary numpy arrays
@@ -275,7 +319,6 @@ class Evaluator:
             ret[metric.name] = results
 
         return ret
-
             
     def reset(self):
         for metric in self._metrics:
