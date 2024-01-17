@@ -13,6 +13,8 @@ from scipy import signal
 from pytorch_lightning import LightningDataModule
 import warnings
 
+from mayo_spindles.evaluator import Evaluator
+
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="pymef.mef_session", lineno=1391)
 
 class PreprocessingStaticFactory:
@@ -207,7 +209,7 @@ class PatientHandle:
                 data = self._load_and_transform_data(start_time, end_time, channel)
                 all_data.append(data)
         
-        data = np.stack(all_data, axis=0)
+        data = np.stack(all_data, axis=0, dtype=np.float32)
         
         # preprocess data
         data = self._preprocessing(data)
@@ -655,10 +657,28 @@ class SpindleDataset(Dataset):
         patient_id = list(self._patient_handles.keys())[patient_id]
         
         return self._patient_handles[patient_id][idx]
+    
+    
+def collate_fn(batch):
+    X = [item['data'] for item in batch]
+    Y = [{k: v for k, v in item.items() if k != 'data'} for item in batch]
+
+    # Pad the tensors and convert to a single tensor
+    X = torch.stack([torch.from_numpy(t) for t in X], dim=0)
+
+    return X, Y
 
 
-class SpindleDataModule(LightningDataModule):
-    def __init__(self, data_dir, duration, intracranial_only=True, batch_size: int = 64):
+def collate_fn_convert_metadata(batch):
+    X, Y = collate_fn(batch)
+    Y = Evaluator.batch_get_classes_true(Y, X.shape[2])
+    return X, Y
+
+
+class  SpindleDataModule(LightningDataModule):
+    def __init__(self, data_dir, duration, intracranial_only=True, batch_size: int = 64,
+                 should_convert_metadata_to_tensor: bool = False,
+                 num_workers: int = 0):
         super().__init__()
         self.dataset = SpindleDataset(only_intracranial_data=intracranial_only)
         for file in os.listdir(data_dir):
@@ -667,18 +687,10 @@ class SpindleDataModule(LightningDataModule):
             elif file.endswith('.mefd'):
                 self.dataset.register_mefd_reader(os.path.join(data_dir, file))
         self.dataset.set_duration(duration)
+        self.collate_fn = collate_fn_convert_metadata if should_convert_metadata_to_tensor else collate_fn
         
         self.batch_size = batch_size
-        
-    @staticmethod
-    def collate_fn(batch):
-        tensors = [item['data'] for item in batch]
-        metadata = [{k: v for k, v in item.items() if k != 'data'} for item in batch]
-
-        # Pad the tensors and convert to a single tensor
-        tensors = torch.stack([torch.from_numpy(t) for t in tensors], dim=0)
-
-        return tensors, metadata
+        self.num_workers = num_workers
 
     def setup(self, stage=None):
         # Randomly split dataset into train, validation and test set
@@ -690,10 +702,10 @@ class SpindleDataModule(LightningDataModule):
         self.train_set, self.val_set, self.test_set = random_split(self.dataset, [train_len, val_len, test_len])
 
     def train_dataloader(self):
-        return DataLoader(self.train_set, collate_fn=self.collate_fn, batch_size=self.batch_size, shuffle=True)
+        return DataLoader(self.train_set, collate_fn=self.collate_fn, num_workers=self.num_workers, batch_size=self.batch_size, shuffle=True)
 
     def val_dataloader(self):
-        return DataLoader(self.val_set, collate_fn=self.collate_fn, batch_size=self.batch_size)
+        return DataLoader(self.val_set, collate_fn=self.collate_fn, num_workers=self.num_workers, batch_size=self.batch_size)
 
     def test_dataloader(self):
-        return DataLoader(self.test_set, collate_fn=self.collate_fn, batch_size=self.batch_size)
+        return DataLoader(self.test_set, collate_fn=self.collate_fn, num_workers=self.num_workers, batch_size=self.batch_size)
