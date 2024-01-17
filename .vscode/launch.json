@@ -49,5 +49,14 @@
             "justMyCode": false,
             "args": ["--model", "cdil", "--data_dir", "data", "--epochs", "1000"]
         },
+        {
+            "name": "export dataset",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/export_hdf5_dataset.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": ["--data_dir", "data", "--output_dir", "hdf5_data", "--duration", "30"]
+        },
     ]
 }
