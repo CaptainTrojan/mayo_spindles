@@ -1,3 +1,4 @@
+import copy
 import os
 from typing import Any
 import torch
@@ -25,6 +26,18 @@ class Config:
                 self.config.update(yaml.safe_load(file))
         except FileNotFoundError:
             pass
+        
+    def __deepcopy__(self, memo):
+        # Create a new instance of the class
+        cls = self.__class__
+        result = cls.__new__(cls)
+        memo[id(self)] = result
+
+        # Copy all attributes
+        for k, v in self.__dict__.items():
+            setattr(result, k, copy.deepcopy(v, memo))
+
+        return result
 
     def get(self, key, default=None):
         return self.config.get(key, default)
@@ -32,8 +45,14 @@ class Config:
     def __getitem__(self, key):
         return self.config.get(key, None)
     
+    def __setitem__(self, key, value):
+        self.config[key] = value
+    
     def __getattr__(self, key):
-        return self[key]
+        if key == 'config':
+            return self.config
+        else:
+            return self[key]
 
 
 class ModelRepository:
@@ -69,12 +88,14 @@ class ModelRepository:
             raise ValueError("Model class should inherit from BaseModel")
         self.models[name] = model_class
 
-    def load(self, name):
+    def load(self, name, additional_config):
         model_class = self.models.get(name)
         if model_class is None:
             raise ValueError(f"No model registered with name {name}")
     
         config = Config(model_name=name)
+        for k, v in additional_config.items():
+            config[k] = v
         with OutputSuppressor():
             model = model_class(config)
 
