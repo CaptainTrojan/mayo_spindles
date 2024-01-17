@@ -39,6 +39,15 @@
                 "--icdata",
                 "--suppress-empty-channels"
             ]
-        }
+        },
+        {
+            "name": "training",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/run.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": ["--model", "cdil", "--data_dir", "data", "--epochs", "1000"]
+        },
     ]
 }
