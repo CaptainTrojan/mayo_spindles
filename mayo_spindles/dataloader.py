@@ -12,7 +12,7 @@ import numpy as np
 from scipy import signal
 from pytorch_lightning import LightningDataModule
 import warnings
-
+import h5py
 from mayo_spindles.evaluator import Evaluator
 
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="pymef.mef_session", lineno=1391)
@@ -675,10 +675,11 @@ def collate_fn_convert_metadata(batch):
     return X, Y
 
 
-class  SpindleDataModule(LightningDataModule):
+class SpindleDataModule(LightningDataModule):
     def __init__(self, data_dir, duration, intracranial_only=True, batch_size: int = 64,
                  should_convert_metadata_to_tensor: bool = False,
-                 num_workers: int = 0):
+                 num_workers: int = 0,
+                 train_only=False):
         super().__init__()
         self.dataset = SpindleDataset(only_intracranial_data=intracranial_only)
         for file in os.listdir(data_dir):
@@ -691,12 +692,18 @@ class  SpindleDataModule(LightningDataModule):
         
         self.batch_size = batch_size
         self.num_workers = num_workers
+        self.train_only = train_only
 
     def setup(self, stage=None):
         # Randomly split dataset into train, validation and test set
-        train_len = int(len(self.dataset) * 0.7)
-        val_len = int(len(self.dataset) * 0.15)
-        test_len = len(self.dataset) - train_len - val_len
+        if self.train_only:
+            train_len = len(self.dataset)
+            val_len = 0
+            test_len = 0
+        else:
+            train_len = int(len(self.dataset) * 0.7)
+            val_len = int(len(self.dataset) * 0.15)
+            test_len = len(self.dataset) - train_len - val_len
         
         torch.manual_seed(42)
         self.train_set, self.val_set, self.test_set = random_split(self.dataset, [train_len, val_len, test_len])
@@ -709,3 +716,53 @@ class  SpindleDataModule(LightningDataModule):
 
     def test_dataloader(self):
         return DataLoader(self.test_set, collate_fn=self.collate_fn, num_workers=self.num_workers, batch_size=self.batch_size)
+    
+
+class HDF5Dataset(Dataset):
+    def __init__(self, file_path):
+        super().__init__()
+        self.file_path = file_path
+        self.file = None
+        
+        with h5py.File(self.file_path, 'r') as hf:
+            self.len = hf['x'].shape[0]
+
+    def __len__(self):
+        return self.len
+
+    def __getitem__(self, index):
+        if self.file is None:
+            self.file = h5py.File(self.file_path, 'r')
+        x = torch.from_numpy(self.file['x'][index])
+        y = torch.from_numpy(self.file['y'][index])
+
+        return x, y
+
+class HDF5DataModule(LightningDataModule):
+    def __init__(self, file_path, batch_size=32, train_val_test_split=[0.7, 0.15, 0.15]):
+        super().__init__()
+        self.file_path = file_path
+        self.batch_size = batch_size
+        self.train_val_test_split = train_val_test_split
+
+    def setup(self, stage=None):
+        # Create dataset
+        dataset = HDF5Dataset(self.file_path)
+
+        # Calculate split sizes
+        total_size = len(dataset)
+        train_size = int(self.train_val_test_split[0] * total_size)
+        val_size = int(self.train_val_test_split[1] * total_size)
+        test_size = total_size - train_size - val_size
+
+        # Split dataset
+        self.train_dataset, self.val_dataset, self.test_dataset = random_split(dataset, [train_size, val_size, test_size])
+
+    def train_dataloader(self):
+        return DataLoader(self.train_dataset, batch_size=self.batch_size, num_workers=4)
+
+    def val_dataloader(self):
+        return DataLoader(self.val_dataset, batch_size=self.batch_size, num_workers=4)
+
+    def test_dataloader(self):
+        return DataLoader(self.test_dataset, batch_size=self.batch_size, num_workers=4)
