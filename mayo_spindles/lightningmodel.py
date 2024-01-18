@@ -10,16 +10,20 @@ class SpindleDetector(pl.LightningModule):
     def __init__(self, model_name, model_config, wandb_logger):
         super().__init__()
         
+        self.model_name = model_name
+        self.model_config = model_config
         # Load the model from the model repository
         repo = ModelRepository()
         self.model = repo.load(model_name, model_config)
+        self.sigmoid = torch.nn.Sigmoid()
         
         # Define the loss function
-        self.loss = torch.nn.BCEWithLogitsLoss()
+        self.loss = torch.nn.BCELoss()
         
         # Define the evaluator
         self.evaluator = Evaluator()
         self.evaluator.add_metric('f1', Evaluator.INTERVAL_F_MEASURE)
+        self.evaluator.add_metric('aucpr', Evaluator.INTERVAL_AUC_AP)
         
         # Define the learning rate (this is a hyperparameter that can be tuned)
         self.lr = 1e-3
@@ -27,18 +31,29 @@ class SpindleDetector(pl.LightningModule):
         # Add the wandb logger
         self.wandb_logger = wandb_logger
         self.wandb_logger.watch(self.model, log_freq=1)
+        
+    def __deepcopy__(self, memo):    
+        # Create a new instance of this class with the same arguments
+        new_instance = SpindleDetector(self.model_name, self.model_config, self.wandb_logger)
+        
+        # Copy learning rate
+        new_instance.lr = self.lr
+        
+        # Copy model parameters
+        new_instance.load_state_dict(self.state_dict())
+        memo[id(self)] = new_instance
 
     def forward(self, x):
         x = x.transpose(1, 2)
-        y = self.model(x)
-        y = y.transpose(1, 2)
-        return y
+        y_hat = self.model(x)
+        y_hat = self.sigmoid(y_hat)
+        y_hat = y_hat.transpose(1, 2)
+        return y_hat
     
     def calculate_loss(self, x, y, do_eval=False):
         y_hat = self.forward(x)
         if do_eval:
-            y_hat_binarized = (y_hat > 0.5).float()  # possibly experiment with different thresholds (add AUC, MAP, AUPRC, etc.)
-            self.evaluator.batch_evaluate_no_conversion(y_hat_binarized, y)
+            self.evaluator.batch_evaluate_no_conversion(y, y_hat)
         return self.loss(y_hat, y)
         
     def training_step(self, train_batch, batch_idx):
@@ -52,10 +67,14 @@ class SpindleDetector(pl.LightningModule):
         loss = self.calculate_loss(x, y, do_eval=True)
         self.log('val_loss', loss)
         return loss
-
-    def on_validation_epoch_end(self) -> None:
-        results: dict[str, list[pd.DataFrame]] = self.evaluator.results()
-        results = results['f1']
+    
+    def log_metric_results(self, name, results):
+        df_name_map = {
+            'f1': ('f-measure',),
+            'aucpr': ('AUC', 'AP'),
+        }
+        
+        results = results[name]
         
         if len(results) != 2:
             return
@@ -68,15 +87,25 @@ class SpindleDetector(pl.LightningModule):
         full_table = wandb.Table(dataframe=results[0])
         averages_table = wandb.Table(dataframe=results[1])
         
-        self.wandb_logger.experiment.log({"val_full_results": full_table})
-        self.wandb_logger.experiment.log({"val_averages": averages_table})
+        self.wandb_logger.experiment.log({f"val_{name}_full_results": full_table})
+        self.wandb_logger.experiment.log({f"val_{name}_averages": averages_table})
+        
+        df_names = df_name_map[name]
         
         # Log all f1 scores (for each class) to the logger as well
         for class_name, values in results[0].iterrows():
-            self.log(f'val_f1_{class_name}', values['f-measure'])
+            for df_name in df_names:
+                self.log(f'val_{df_name}_{class_name}', values[df_name])
             
         # Log the micro average f1 score to the logger
-        self.log('val_f1_micro', results[1].iloc[0]['f-measure'])
+        for df_name in df_names:
+            self.log(f'val_{df_name}_avg', results[1].iloc[0][df_name])
+
+    def on_validation_epoch_end(self) -> None:
+        results: dict[str, list[pd.DataFrame]] = self.evaluator.results()
+        
+        self.log_metric_results('f1', results)
+        self.log_metric_results('aucpr', results)
                 
         self.evaluator.reset()
     
