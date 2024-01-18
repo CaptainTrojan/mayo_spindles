@@ -47,7 +47,7 @@
             "program": "${workspaceFolder}/run.py",
             "console": "integratedTerminal",
             "justMyCode": false,
-            "args": ["--model", "cdil", "--data_dir", "data", "--epochs", "1000"]
+            "args": ["--model", "cdil", "--data", "hdf5_data", "--epochs", "1000"]
         },
         {
             "name": "export dataset",
