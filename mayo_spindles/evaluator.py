@@ -4,6 +4,7 @@ import pandas as pd
 from scipy import stats
 import torch
 np.seterr(divide='ignore')
+from sklearn.metrics import average_precision_score, roc_auc_score
 
 
 # def interval_hit_rate(y_true: np.ndarray, y_pred: np.ndarray):
@@ -76,6 +77,8 @@ class IntervalFMeasure(Metric):
         if isinstance(y_pred, torch.Tensor):
             y_pred = y_pred.detach().cpu().numpy()
             
+        y_pred = (y_pred > 0.5).astype(np.float32)  # possibly experiment with different thresholds 
+            
         # y_true and y_pred are binary arrays of shape (batch_size, num_classes, num_samples)
         # y_true is the ground truth
         # y_pred is the prediction
@@ -127,9 +130,68 @@ class IntervalFMeasure(Metric):
         return len(self._tp)
 
 
+class IntervalAUCAP(Metric):
+    def __call__(self, y_true, y_pred):
+        if isinstance(y_true, torch.Tensor):
+            y_true = y_true.detach().cpu().numpy()
+
+        if isinstance(y_pred, torch.Tensor):
+            y_pred = y_pred.detach().cpu().numpy()
+
+        # y_true and y_pred are binary arrays of shape (batch_size, num_classes, num_samples)
+        # y_true is the ground truth
+        # y_pred is the prediction
+
+        # Calculate AUC for each class
+        auc = []
+        ap = []
+        for i in range(y_true.shape[1]):
+            y_t = y_true[:, i, :].flatten()
+            
+            if y_t.sum() == 0:
+                auc.append(np.nan)
+                ap.append(np.nan)
+            else:
+                y_p = y_pred[:, i, :].flatten()
+                auc.append(roc_auc_score(y_t, y_p))
+                ap.append(average_precision_score(y_t, y_p))
+        
+        self._auc.append(np.array(auc))
+        self._ap.append(np.array(ap))
+
+    def results(self):
+        # Calculate average AUC for each class
+        auc = np.nanmean(self._auc, axis=0)
+        ap = np.nanmean(self._ap, axis=0)
+
+        raw = pd.DataFrame({
+            'AUC': auc,
+            'AP': ap
+        }, index=Evaluator.CLASSES_INV)
+
+        macro_average = pd.DataFrame({
+            'AUC': np.nanmean(raw['AUC']),
+            'AP': np.nanmean(raw['AP'])
+        }, index=['macro-average'])
+
+        average = pd.concat([macro_average])
+        return [raw, average]
+
+    def reset(self):
+        self._auc = []
+        self._ap = []
+
+    def __str__(self):
+        return f"{self.name} ({len(self._auc)} batches)"
+
+    def __len__(self):
+        return len(self._auc)    
+
+
 @finalizing
 class Evaluator:
     INTERVAL_F_MEASURE = IntervalFMeasure
+    INTERVAL_AUC_AP = IntervalAUCAP
     
     POSSIBLE_INTRACRANIAL_CHANNELS = [
         'e0-e1', 'e0-e2', 'e0-e3', 'e1-e2', 'e1-e3', 'e2-e3',  # LT
