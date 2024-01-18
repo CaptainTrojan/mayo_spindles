@@ -7,3 +7,7 @@ class BaseModel(nn.Module):
 
     def forward(self, x):
         raise NotImplementedError
+    
+    @property
+    def device(self):
+        return next(self.parameters()).device
