@@ -1,4 +1,5 @@
 import csv
+import json
 from pprint import pprint
 import torch
 from torch.utils.data import Dataset, DataLoader, random_split
@@ -718,51 +719,138 @@ class SpindleDataModule(LightningDataModule):
         return DataLoader(self.test_set, collate_fn=self.collate_fn, num_workers=self.num_workers, batch_size=self.batch_size)
     
 
+import numpy as np
+
 class HDF5Dataset(Dataset):
-    def __init__(self, file_path):
+    def __init__(self, data_dir, split, augmentations_size=0):
         super().__init__()
-        self.file_path = file_path
-        self.file = None
+        self.file_path = os.path.join(data_dir, 'data.h5')
+        self.splits_path = os.path.join(data_dir, 'splits.json')
+        with open(self.splits_path, 'r') as f:
+            self.splits = json.load(f)
+            
+        assert split in self.splits, f"Split {split} not found in {self.splits_path}"
         
+        self.file = None
+        self.augmentations = augmentations_size > 0
+        self.augmentations_size = augmentations_size
+        
+        self.indices = self.splits[split]
+        self.len = len(self.indices)
+
         with h5py.File(self.file_path, 'r') as hf:
-            self.len = hf['x'].shape[0]
+            self.num_channels = hf['x'].shape[1]
+            self.num_classes = hf['y'].shape[1]
+            self.seq_len = hf['x'].shape[2]
 
     def __len__(self):
-        return self.len
+        return self.len if not self.augmentations else self.augmentations_size
 
     def __getitem__(self, index):
         if self.file is None:
             self.file = h5py.File(self.file_path, 'r')
-        x = torch.from_numpy(self.file['x'][index])
-        y = torch.from_numpy(self.file['y'][index])
+
+        if self.augmentations:
+            x, y = self.__augmented_select(index)
+            
+        else:
+            index = self.indices[index]
+            
+            x = self.__load_one_element('x', index)
+            y = self.__load_one_element('y', index)
 
         return x, y
+    
+    def __augmented_select(self, index):
+        # Seed by index so that the same indices are always selected
+        np.random.seed(index)
+        
+        # Randomly select 2-3 indices
+        indices = np.random.choice(self.indices, np.random.randint(2, 4))
+        
+        X = []
+        Y = []
 
-class HDF5DataModule(LightningDataModule):
-    def __init__(self, file_path, batch_size=32, train_val_test_split=[0.7, 0.15, 0.15]):
+        for idx in indices:
+            # Get the (x, y) pair for the selected index
+            x_aug = self.__load_one_element('x', idx)
+            y_aug = self.__load_one_element('y', idx)
+
+            X.append(x_aug)
+            Y.append(y_aug)
+        
+        # Randomly merge the selected arrays (so the original shape of the data is preserved)
+        cutoffs = np.random.choice(self.seq_len, len(X) - 1, replace=False).tolist()
+        cutoffs.sort()
+        cutoffs.insert(0, 0)
+        cutoffs.append(self.seq_len)
+        X_parts = []
+        Y_parts = []
+        
+        for x_full, y_full, start, end in zip(X, Y, cutoffs[:-1], cutoffs[1:]):
+            # Roll the data randomly first
+            roll_amount = np.random.randint(0, self.seq_len)
+            x_full = torch.roll(x_full, roll_amount, dims=1)
+            y_full = torch.roll(y_full, roll_amount, dims=1)
+            
+            X_parts.append(x_full[:, start:end])
+            Y_parts.append(y_full[:, start:end])
+        
+        x = torch.cat(X_parts, dim=1)
+        y = torch.cat(Y_parts, dim=1)
+        
+        assert x.shape[1] == self.seq_len, f"Expected {x.shape[1]} to be {self.seq_len}"
+        assert y.shape[1] == self.seq_len, f"Expected {y.shape[1]} to be {self.seq_len}"
+
+        return x, y
+    
+    def __normalize(self, data: torch.Tensor):
+        normed = (data - torch.mean(data, dim=1, keepdim=True)) / torch.std(data, dim=1, keepdim=True)
+        return torch.nan_to_num(normed, nan=0.0)
+    
+    def __filter_frequency(self, data: torch.Tensor, low: int, high: int):
+        # Data shape = (num_channels, seq_len)
+        fsamp = 250
+        
+        nyquist = 0.5 * fsamp
+        low /= nyquist
+        high /= nyquist
+        sos = signal.butter(7, [low, high], btype='band', output='sos')
+        filtered = torch.from_numpy(signal.sosfiltfilt(sos, data.numpy(), axis=1).copy())
+        return filtered.float()
+
+    def __load_one_element(self, col, idx):
+        el = self.__load_one_element_raw(col, idx)
+        
+        if col == 'x':
+            el = self.__filter_frequency(el, 10, 16)
+            el = self.__normalize(el)
+        
+        return el
+    
+    def __load_one_element_raw(self, col, idx):
+        return torch.from_numpy(self.file[col][idx])
+
+
+class HDF5SpindleDataModule(LightningDataModule):
+    def __init__(self, data_dir, batch_size=32, num_workers=0):
         super().__init__()
-        self.file_path = file_path
+        self.data_dir = data_dir
         self.batch_size = batch_size
-        self.train_val_test_split = train_val_test_split
+        self.num_workers = num_workers
+            
+        self.train_dataset = HDF5Dataset(self.data_dir, 'train', augmentations_size=2000)
+        self.val_dataset = HDF5Dataset(self.data_dir, 'val')
+        self.test_dataset = HDF5Dataset(self.data_dir, 'test')
 
     def setup(self, stage=None):
-        # Create dataset
-        dataset = HDF5Dataset(self.file_path)
-
-        # Calculate split sizes
-        total_size = len(dataset)
-        train_size = int(self.train_val_test_split[0] * total_size)
-        val_size = int(self.train_val_test_split[1] * total_size)
-        test_size = total_size - train_size - val_size
-
-        # Split dataset
-        self.train_dataset, self.val_dataset, self.test_dataset = random_split(dataset, [train_size, val_size, test_size])
-
+        None
+        
     def train_dataloader(self):
-        return DataLoader(self.train_dataset, batch_size=self.batch_size, num_workers=4)
+        return DataLoader(self.train_dataset, batch_size=self.batch_size, num_workers=self.num_workers)
 
     def val_dataloader(self):
-        return DataLoader(self.val_dataset, batch_size=self.batch_size, num_workers=4)
+        return DataLoader(self.val_dataset, batch_size=self.batch_size, num_workers=self.num_workers)
 
     def test_dataloader(self):
-        return DataLoader(self.test_dataset, batch_size=self.batch_size, num_workers=4)
+        return DataLoader(self.test_dataset, batch_size=self.batch_size, num_workers=self.num_workers)
