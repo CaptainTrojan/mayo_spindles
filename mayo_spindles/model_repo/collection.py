@@ -101,6 +101,7 @@ class ModelRepository:
 
         # Create a dummy tensor
         dummy_input = torch.randn(1, config.seq_len, config.c_in)
+        dummy_input.to(model.device)
 
         try:
             # Try to pass the tensor through the model
