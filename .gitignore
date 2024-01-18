@@ -1,3 +1,9 @@
 *.mefd
 data/
 *.pyc
+wandb/
+checkpoints/
+.lr_find*
+*.ckpt
+data/
+hdf5_data/
