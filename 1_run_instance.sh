@@ -22,6 +22,6 @@ pip install -r requirements.txt
 
 ls -alh
 
-python run.py --data $SCRATCHDIR/data $args
+python run.py --data $SCRATCHDIR/mayo_spindles/data $args
 
 clean_scratch

@@ -68,7 +68,7 @@ if __name__ == '__main__':
     fig.savefig("lr_finder.png")
     wandb_logger.experiment.log({"lr_finder": wandb.Image(fig)})
 
-    new_batch_size = tuner.scale_batch_size(model, datamodule=data_module, mode='power')
+    new_batch_size = tuner.scale_batch_size(model, datamodule=data_module, mode='power', max_trials=7)
 
     print(f"Suggested learning rate: {lr_finder.suggestion()}")
     print(f"Suggested batch size: {new_batch_size}")
