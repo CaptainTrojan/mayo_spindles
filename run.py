@@ -38,6 +38,11 @@ if __name__ == '__main__':
         model_config = {}  
         
     wandb_logger = WandbLogger(project=args.project_name, log_model=True)
+    wandb_logger.log_hyperparams({
+        'model': model_name,
+        'additional_model_config': model_config,
+        'bw_filter': args.filter_bandwidth,
+    })
     model = SpindleDetector(model_name, model_config, wandb_logger)
 
     # Initialize a trainer with the StochasticWeightAveraging callback
