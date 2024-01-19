@@ -17,15 +17,19 @@ if __name__ == '__main__':
     parser.add_argument('--model', type=str, choices=model_options, required=True, help='name of the model to train')
     parser.add_argument('--data', type=str, required=True, help='path to the data')
     # Optional arguments
+    parser.add_argument('--filter_bandwidth', type=bool, default=False, help='whether to bandfilter the data (default: False)')
     parser.add_argument('--model_config', type=str, default=None, help='path to the model config file (default: None)')
     parser.add_argument('--epochs', type=int, default=1, help='number of epochs to train (default: 1)')
     parser.add_argument('--project_name', type=str, default='mayo_spindles', help='name of the project (default: mayo_spindles)')
     parser.add_argument('--num_workers', type=int, default=10, help='number of workers for the data loader (default: 10)')
+    parser.add_argument('--lr', type=float, default=None, help='learning rate (default: None)')
+    parser.add_argument('--batch_size', type=int, default=None, help='batch size (default: None)')
     args = parser.parse_args()
     
     # data_module = SpindleDataModule(args.data_dir, args.duration, num_workers=0, 
     #                                 batch_size=1, should_convert_metadata_to_tensor=True)
-    data_module = HDF5SpindleDataModule(args.data, batch_size=1, num_workers=args.num_workers)
+    data_module = HDF5SpindleDataModule(args.data, batch_size=1, num_workers=args.num_workers,
+                                        filter_bandwidth=args.filter_bandwidth)
     
     model_name = args.model
     if args.model_config is not None:
@@ -61,21 +65,28 @@ if __name__ == '__main__':
     )
     
     tuner = Tuner(trainer)
-    # Use the Learning Rate Finder
-    lr_finder = tuner.lr_find(model, datamodule=data_module, min_lr=1e-6, max_lr=1e-2, num_training=100)
-    # Plot learning rate
-    fig = lr_finder.plot(suggest=True)
-    fig.savefig("lr_finder.png")
-    wandb_logger.experiment.log({"lr_finder": wandb.Image(fig)})
+    
+    if args.lr is not None:
+        model.lr = args.lr
+    else:
+        # Use the Learning Rate Finder
+        lr_finder = tuner.lr_find(model, datamodule=data_module, min_lr=1e-6, max_lr=1e-2, num_training=100)
+        # Plot learning rate
+        fig = lr_finder.plot(suggest=True)
+        fig.savefig("lr_finder.png")
+        wandb_logger.experiment.log({"lr_finder": wandb.Image(fig)})
+        print(f"Suggested learning rate: {lr_finder.suggestion()}")
+        model.lr = lr_finder.suggestion()
+        
+    if args.batch_size is not None:
+        data_module.batch_size = args.batch_size
+    else:
+        new_batch_size = tuner.scale_batch_size(model, datamodule=data_module, mode='power', max_trials=7)
 
-    new_batch_size = tuner.scale_batch_size(model, datamodule=data_module, mode='power', max_trials=7)
+        print(f"Suggested batch size: {new_batch_size}")
 
-    print(f"Suggested learning rate: {lr_finder.suggestion()}")
-    print(f"Suggested batch size: {new_batch_size}")
-
-    # Update batch size and learning rate
-    data_module.batch_size = new_batch_size
-    model.lr = lr_finder.suggestion()
+        # Update batch size and learning rate
+        data_module.batch_size = new_batch_size
     
     # Train the model
     trainer.fit(model, data_module)
