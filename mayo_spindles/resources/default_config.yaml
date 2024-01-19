@@ -2,7 +2,7 @@ c_in: 24
 enc_in: 24
 dec_in: 7
 c_out: 7
-seq_len: 7200
+seq_len: 7500
 hidden_size: 64
 activation: 'gelu'
 num_layers: 2
@@ -10,8 +10,8 @@ num_layers: 2
 # TSLib config
 
 task_name: 'anomaly_detection'
-label_len: 7200
-pred_len: 7200
+label_len: 7500
+pred_len: 7500
 inverse: false
 mask_rate: 1
 anomaly_ratio: 1
