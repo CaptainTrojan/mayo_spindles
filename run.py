@@ -107,7 +107,9 @@ if __name__ == '__main__':
         data_module.batch_size = new_batch_size
         
     # Try to clear GPU memory as much as possible
-    del lr_finder
+    if args.lr is None:
+        del lr_finder
+        
     del tuner
     torch.cuda.empty_cache()
     gc.collect()
