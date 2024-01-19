@@ -47,7 +47,7 @@
             "program": "${workspaceFolder}/run.py",
             "console": "integratedTerminal",
             "justMyCode": false,
-            "args": ["--model", "cdil", "--data", "hdf5_data", "--epochs", "1000"]
+            "args": ["--model", "mlp", "--data", "hdf5_data", "--epochs", "1000", "--lr", "0.001", "--batch_size", "32"]
         },
         {
             "name": "export dataset",
@@ -57,6 +57,14 @@
             "console": "integratedTerminal",
             "justMyCode": false,
             "args": ["--data_dir", "data", "--output_dir", "hdf5_data", "--duration", "30"]
+        },
+        {
+            "name": "h5 visualizer",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/test_h5py_visualizer.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
         },
     ]
 }
