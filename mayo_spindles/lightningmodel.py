@@ -34,6 +34,14 @@ class SpindleDetector(pl.LightningModule):
         self.wandb_logger = wandb_logger
         self.wandb_logger.watch(self.model, log_freq=1)
         
+        self.wandb_logger.log_hyperparams({
+            'model_name': self.model_name,
+            'model_config': self.model_config,
+            'lr': self.lr,
+        })
+        
+        # Log model name and config to wandb
+        
         self.val_samples = []
         self.val_samples_target_amount = 3
         self.visualizer = H5Visualizer()
