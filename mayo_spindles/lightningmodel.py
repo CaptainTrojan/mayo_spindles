@@ -34,13 +34,13 @@ class SpindleDetector(pl.LightningModule):
         self.wandb_logger = wandb_logger
         self.wandb_logger.watch(self.model, log_freq=1)
         
-        # Log model name and config to wandb
+        self.val_loss_sum = 0.0
+        self.val_steps = 0
         
         self.val_samples = []
         self.val_samples_target_amount = 3
         self.visualizer = H5Visualizer()
         self.best_val_loss = float('inf')
-        self.val_loss_improved = False
         
     def __deepcopy__(self, memo):    
         # Create a new instance of this class with the same arguments
@@ -78,7 +78,6 @@ class SpindleDetector(pl.LightningModule):
     
     def on_validation_epoch_start(self) -> None:
         self.val_samples = []
-        self.val_loss_improved = False
 
     def validation_step(self, val_batch, batch_idx):
         x, y = val_batch
@@ -87,14 +86,11 @@ class SpindleDetector(pl.LightningModule):
         for i in range(min(self.val_samples_target_amount - len(self.val_samples), len(x))):
             self.val_samples.append((x[i], y[i], y_hat[i]))
         
-        if loss < self.best_val_loss:
-            self.best_val_loss = loss
-            self.val_loss_improved = True
-        
-        self.log('val_loss', loss)
+        self.val_loss_sum += loss
+        self.val_steps += 1
         return loss
     
-    def log_metric_results(self, name, results):
+    def log_metric_results(self, name, results, val_loss_improved):
         df_name_map = {
             'f1': ('f-measure',),
             'aucpr': ('AUC', 'AP'),
@@ -109,12 +105,12 @@ class SpindleDetector(pl.LightningModule):
         for i in range(len(results)):
             results[i].insert(0, 'row', results[i].index)
         
-        # Build the tables
-        full_table = wandb.Table(dataframe=results[0])
-        averages_table = wandb.Table(dataframe=results[1])
-        
         # Log the tables to the logger, but only if val loss is improved
-        if self.val_loss_improved:
+        if val_loss_improved:
+            # Build the tables
+            full_table = wandb.Table(dataframe=results[0])
+            averages_table = wandb.Table(dataframe=results[1])
+            
             self.wandb_logger.experiment.log({f"val_{name}_full_results": full_table})
             self.wandb_logger.experiment.log({f"val_{name}_averages": averages_table})
         
@@ -130,12 +126,17 @@ class SpindleDetector(pl.LightningModule):
             self.log(f'val_{df_name}_avg', results[1].iloc[0][df_name])
 
     def on_validation_epoch_end(self) -> None:
+        val_loss_mean = self.val_loss_sum / self.val_steps
+        self.log('val_loss', val_loss_mean)
+        val_loss_improved = val_loss_mean < self.best_val_loss
+        self.best_val_loss = min(self.best_val_loss, val_loss_mean)
+        
         results: dict[str, list[pd.DataFrame]] = self.evaluator.results()
         
-        self.log_metric_results('f1', results)
-        self.log_metric_results('aucpr', results)
+        self.log_metric_results('f1', results, val_loss_improved)
+        self.log_metric_results('aucpr', results, val_loss_improved)
         
-        if self.val_loss_improved:
+        if val_loss_improved:            
             plots = []
             for i, (x, y, y_hat) in enumerate(self.val_samples):
                 plot = self.visualizer.generate_prediction_plot(x, y, y_hat)
@@ -147,10 +148,7 @@ class SpindleDetector(pl.LightningModule):
         self.evaluator.reset()
     
     def test_step(self, test_batch, batch_idx):
-        x, y = test_batch
-        loss = self.calculate_loss(x, y, do_eval=True)
-        self.log('test_loss', loss)
-        return loss
+        raise NotImplementedError("Test step not implemented")
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
