@@ -2,6 +2,8 @@ import pandas as pd
 import pytorch_lightning as pl
 import torch
 import wandb
+
+from mayo_spindles.h5py_visualizer import H5Visualizer
 from .evaluator import Evaluator
 
 from .model_repo.collection import ModelRepository
@@ -32,6 +34,12 @@ class SpindleDetector(pl.LightningModule):
         self.wandb_logger = wandb_logger
         self.wandb_logger.watch(self.model, log_freq=1)
         
+        self.val_samples = []
+        self.val_samples_target_amount = 3
+        self.visualizer = H5Visualizer()
+        self.best_val_loss = float('inf')
+        self.val_loss_improved = False
+        
     def __deepcopy__(self, memo):    
         # Create a new instance of this class with the same arguments
         new_instance = SpindleDetector(self.model_name, self.model_config, self.wandb_logger)
@@ -50,21 +58,37 @@ class SpindleDetector(pl.LightningModule):
         y_hat = y_hat.transpose(1, 2)
         return y_hat
     
-    def calculate_loss(self, x, y, do_eval=False):
+    def calculate_loss(self, x, y, do_eval=False, return_y_hat=False):
         y_hat = self.forward(x)
         if do_eval:
             self.evaluator.batch_evaluate_no_conversion(y, y_hat)
-        return self.loss(y_hat, y)
+            
+        if return_y_hat:
+            return self.loss(y_hat, y), y_hat
+        else:
+            return self.loss(y_hat, y)
         
     def training_step(self, train_batch, batch_idx):
         x, y = train_batch
         loss = self.calculate_loss(x, y)
         self.log('train_loss', loss)
         return loss
+    
+    def on_validation_epoch_start(self) -> None:
+        self.val_samples = []
+        self.val_loss_improved = False
 
     def validation_step(self, val_batch, batch_idx):
         x, y = val_batch
-        loss = self.calculate_loss(x, y, do_eval=True)
+        loss, y_hat = self.calculate_loss(x, y, do_eval=True, return_y_hat=True)
+        
+        for i in range(min(self.val_samples_target_amount - len(self.val_samples), len(x))):
+            self.val_samples.append((x[i], y[i], y_hat[i]))
+        
+        if loss < self.best_val_loss:
+            self.best_val_loss = loss
+            self.val_loss_improved = True
+        
         self.log('val_loss', loss)
         return loss
     
@@ -83,12 +107,14 @@ class SpindleDetector(pl.LightningModule):
         for i in range(len(results)):
             results[i].insert(0, 'row', results[i].index)
         
-        # Log the results to the logger
+        # Build the tables
         full_table = wandb.Table(dataframe=results[0])
         averages_table = wandb.Table(dataframe=results[1])
         
-        self.wandb_logger.experiment.log({f"val_{name}_full_results": full_table})
-        self.wandb_logger.experiment.log({f"val_{name}_averages": averages_table})
+        # Log the tables to the logger, but only if val loss is improved
+        if self.val_loss_improved:
+            self.wandb_logger.experiment.log({f"val_{name}_full_results": full_table})
+            self.wandb_logger.experiment.log({f"val_{name}_averages": averages_table})
         
         df_names = df_name_map[name]
         
@@ -106,6 +132,15 @@ class SpindleDetector(pl.LightningModule):
         
         self.log_metric_results('f1', results)
         self.log_metric_results('aucpr', results)
+        
+        if self.val_loss_improved:
+            plots = []
+            for i, (x, y, y_hat) in enumerate(self.val_samples):
+                plot = self.visualizer.generate_prediction_plot(x, y, y_hat)
+                plots.append(plot)
+            self.wandb_logger.log_image(key=f'preds', images=plots)
+            # Clear figures
+            self.visualizer.clear_figures()
                 
         self.evaluator.reset()
     
