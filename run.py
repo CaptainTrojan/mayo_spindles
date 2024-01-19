@@ -49,7 +49,7 @@ if __name__ == '__main__':
     swa_callback = StochasticWeightAveraging(swa_lrs=1e-2)
     early_stopping_callback = EarlyStopping(
         monitor='val_loss',
-        patience=3,
+        patience=15,
         mode='min',
     )
     checkpoint_callback = ModelCheckpoint(
