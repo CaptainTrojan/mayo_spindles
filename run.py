@@ -10,6 +10,17 @@ from pytorch_lightning.callbacks import StochasticWeightAveraging, ModelCheckpoi
 from pytorch_lightning.loggers import WandbLogger
 import wandb
 
+def str2bool(v):
+    if isinstance(v, bool):
+       return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
+
+
 if __name__ == '__main__':
     model_options = ModelRepository().get_model_names()
     
@@ -17,7 +28,7 @@ if __name__ == '__main__':
     parser.add_argument('--model', type=str, choices=model_options, required=True, help='name of the model to train')
     parser.add_argument('--data', type=str, required=True, help='path to the data')
     # Optional arguments
-    parser.add_argument('--filter_bandwidth', type=bool, default=False, help='whether to bandfilter the data (default: False)')
+    parser.add_argument('--filter_bandwidth', type=str2bool, default=False, help='whether to bandfilter the data (default: False)')
     parser.add_argument('--model_config', type=str, default=None, help='path to the model config file (default: None)')
     parser.add_argument('--epochs', type=int, default=1, help='number of epochs to train (default: 1)')
     parser.add_argument('--project_name', type=str, default='mayo_spindles', help='name of the project (default: mayo_spindles)')
