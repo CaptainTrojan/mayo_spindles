@@ -124,6 +124,13 @@ class Segment:
 
 
 class PatientHandle:
+    _possible_intracranial_channels = [
+        'e0-e1', 'e0-e2', 'e0-e3', 'e1-e2', 'e1-e3', 'e2-e3',  # LT
+        'e4-e5', 'e4-e6', 'e4-e7', 'e5-e6', 'e5-e7', 'e6-e7',  # LH
+        'e8-e9', 'e8-e10', 'e8-e11', 'e9-e10', 'e9-e11', 'e10-e11',  # RT
+        'e12-e13', 'e12-e14', 'e12-e15', 'e13-e14', 'e13-e15', 'e14-e15'  # RH
+    ]
+    
     def __init__(self, 
                  patient_id: int,
                  emu_id: int,
@@ -150,14 +157,6 @@ class PatientHandle:
         self._patient_id = patient_id
         self._emu_id = emu_id
         
-        # channels for intracranial data e0-e1, e0-e2, ... so that they have fixed output indices
-        self._possible_intracranial_channels = [
-            'e0-e1', 'e0-e2', 'e0-e3', 'e1-e2', 'e1-e3', 'e2-e3',  # LT
-            'e4-e5', 'e4-e6', 'e4-e7', 'e5-e6', 'e5-e7', 'e6-e7',  # LH
-            'e8-e9', 'e8-e10', 'e8-e11', 'e9-e10', 'e9-e11', 'e10-e11',  # RT
-            'e12-e13', 'e12-e14', 'e12-e15', 'e13-e14', 'e13-e15', 'e14-e15'  # RH
-        ]
-
         # all channels that exist in the reader
         self._existing_channels = self._reader.channels
         
@@ -722,7 +721,7 @@ class SpindleDataModule(LightningDataModule):
 import numpy as np
 
 class HDF5Dataset(Dataset):
-    def __init__(self, data_dir, split, augmentations_size=0):
+    def __init__(self, data_dir, split, filter_bandwidth, augmentations_size=0):
         super().__init__()
         self.file_path = os.path.join(data_dir, 'data.h5')
         self.splits_path = os.path.join(data_dir, 'splits.json')
@@ -734,6 +733,7 @@ class HDF5Dataset(Dataset):
         self.file = None
         self.augmentations = augmentations_size > 0
         self.augmentations_size = augmentations_size
+        self.filter_bandwidth = filter_bandwidth
         
         self.indices = self.splits[split]
         self.len = len(self.indices)
@@ -823,7 +823,8 @@ class HDF5Dataset(Dataset):
         el = self.__load_one_element_raw(col, idx)
         
         if col == 'x':
-            el = self.__filter_frequency(el, 10, 16)
+            if self.filter_bandwidth:
+                el = self.__filter_frequency(el, 10, 16)
             el = self.__normalize(el)
         
         return el
@@ -833,24 +834,28 @@ class HDF5Dataset(Dataset):
 
 
 class HDF5SpindleDataModule(LightningDataModule):
-    def __init__(self, data_dir, batch_size=32, num_workers=0):
+    def __init__(self, data_dir, batch_size=32, num_workers=0,
+                 filter_bandwidth=False):
         super().__init__()
         self.data_dir = data_dir
         self.batch_size = batch_size
         self.num_workers = num_workers
             
-        self.train_dataset = HDF5Dataset(self.data_dir, 'train', augmentations_size=2000)
-        self.val_dataset = HDF5Dataset(self.data_dir, 'val')
-        self.test_dataset = HDF5Dataset(self.data_dir, 'test')
+        self.train_dataset = HDF5Dataset(self.data_dir, 'train', filter_bandwidth, augmentations_size=2000)
+        self.val_dataset = HDF5Dataset(self.data_dir, 'val', filter_bandwidth)
+        self.test_dataset = HDF5Dataset(self.data_dir, 'test', filter_bandwidth)
 
     def setup(self, stage=None):
         None
         
     def train_dataloader(self):
-        return DataLoader(self.train_dataset, batch_size=self.batch_size, num_workers=self.num_workers)
+        return DataLoader(self.train_dataset, batch_size=self.batch_size, num_workers=self.num_workers,
+                           persistent_workers=True, shuffle=True)
 
     def val_dataloader(self):
-        return DataLoader(self.val_dataset, batch_size=self.batch_size, num_workers=self.num_workers)
+        return DataLoader(self.val_dataset, batch_size=self.batch_size, num_workers=self.num_workers,
+                          persistent_workers=True)
 
     def test_dataloader(self):
-        return DataLoader(self.test_dataset, batch_size=self.batch_size, num_workers=self.num_workers)
+        return DataLoader(self.test_dataset, batch_size=self.batch_size, num_workers=self.num_workers,
+                          persistent_workers=True)
