@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 import torch
-np.seterr(divide='ignore')
+np.seterr(divide='ignore', invalid='ignore')
 from sklearn.metrics import average_precision_score, roc_auc_score
 
 
@@ -161,8 +161,10 @@ class IntervalAUCAP(Metric):
 
     def results(self):
         # Calculate average AUC for each class
-        auc = np.nanmean(self._auc, axis=0)
-        ap = np.nanmean(self._ap, axis=0)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            auc = np.nanmean(self._auc, axis=0)
+            ap = np.nanmean(self._ap, axis=0)
 
         raw = pd.DataFrame({
             'AUC': auc,
@@ -349,7 +351,7 @@ class Evaluator:
         for metric in self._metrics:
             metric(classes_true, classes_pred)
             
-    def batch_evaluate_no_conversion(self, y_true: torch.Tensor, y_pred: torch.Tensor):
+    def batch_evaluate_no_conversion(self, y_true: torch.Tensor | np.ndarray, y_pred: torch.Tensor | np.ndarray):
         for metric in self._metrics:
             metric(y_true, y_pred)
     
