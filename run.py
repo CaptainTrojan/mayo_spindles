@@ -1,4 +1,6 @@
 import argparse
+import gc
+import torch
 
 import yaml
 from mayo_spindles.model_repo.collection import ModelRepository
@@ -86,7 +88,7 @@ if __name__ == '__main__':
         model.lr = args.lr
     else:
         # Use the Learning Rate Finder
-        lr_finder = tuner.lr_find(model, datamodule=data_module, min_lr=1e-6, max_lr=1e-2, num_training=100)
+        lr_finder = tuner.lr_find(model, datamodule=data_module, min_lr=1e-6, max_lr=1e-1, num_training=100)
         # Plot learning rate
         fig = lr_finder.plot(suggest=True)
         fig.savefig("lr_finder.png")
@@ -98,11 +100,17 @@ if __name__ == '__main__':
         data_module.batch_size = args.batch_size
     else:
         new_batch_size = tuner.scale_batch_size(model, datamodule=data_module, mode='power', max_trials=7, steps_per_trial=20)
-
+        new_batch_size = int(new_batch_size * 0.75)  # Reduce batch size a bit to be safe
         print(f"Suggested batch size: {new_batch_size}")
 
         # Update batch size and learning rate
         data_module.batch_size = new_batch_size
+        
+    # Try to clear GPU memory as much as possible
+    del lr_finder
+    del tuner
+    torch.cuda.empty_cache()
+    gc.collect()
     
     # Train the model
     trainer.fit(model, data_module)
