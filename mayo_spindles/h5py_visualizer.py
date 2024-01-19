@@ -65,8 +65,8 @@ class H5Visualizer:
         for i in range(num_classes):
             ax = fig.add_subplot(bottom_plots[i, 0])
             
-            ax.plot(y_pred[i], linewidth=0.5, label='Predicted', color='gray')
             ax.plot(y_true[i], linewidth=2, label='True', color='black')
+            ax.plot(y_pred[i], linewidth=0.5, label='Predicted', color='red')
             
             # Set channel name
             name = Evaluator.CLASSES_INV[i]
