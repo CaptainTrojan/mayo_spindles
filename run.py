@@ -8,7 +8,7 @@ from mayo_spindles.dataloader import SpindleDataModule, HDF5SpindleDataModule
 from mayo_spindles.lightningmodel import SpindleDetector
 import pytorch_lightning as pl
 from pytorch_lightning.tuner.tuning import Tuner
-from pytorch_lightning.callbacks import StochasticWeightAveraging, ModelCheckpoint, EarlyStopping
+from pytorch_lightning.callbacks import StochasticWeightAveraging, ModelCheckpoint, EarlyStopping, LearningRateMonitor
 from pytorch_lightning.loggers import WandbLogger
 import wandb
 
@@ -48,9 +48,9 @@ if __name__ == '__main__':
     if args.model_config is not None:
         model_config = yaml.safe_load(open(args.model_config, 'r'))
     else:
-        model_config = {}  
+        model_config = {}
         
-    wandb_logger = WandbLogger(project=args.project_name, log_model=True)
+    wandb_logger = WandbLogger(project=args.project_name, save_dir=None, dir=None, offline=False)
     wandb_logger.log_hyperparams({
         'model': model_name,
         'additional_model_config': model_config,
@@ -69,17 +69,18 @@ if __name__ == '__main__':
         monitor='val_loss',
         dirpath='checkpoints',
         filename='spindle-detector-{epoch:02d}-{val_loss:.2f}',
-        save_top_k=3,
+        save_top_k=1,
         mode='min',
     )
+    lr_monitor = LearningRateMonitor(logging_interval='epoch')
 
     trainer = pl.Trainer(
         accelerator='gpu',
         max_epochs=args.epochs,
         enable_checkpointing=True,
-        callbacks=[swa_callback, checkpoint_callback, early_stopping_callback],
+        callbacks=[swa_callback, checkpoint_callback, early_stopping_callback, lr_monitor],
         logger=wandb_logger,
-        log_every_n_steps=1  # Makes sense with maximized batch size
+        log_every_n_steps=10  
     )
     
     tuner = Tuner(trainer)
@@ -109,7 +110,6 @@ if __name__ == '__main__':
     # Try to clear GPU memory as much as possible
     if args.lr is None:
         del lr_finder
-        
     del tuner
     torch.cuda.empty_cache()
     gc.collect()
@@ -117,3 +117,9 @@ if __name__ == '__main__':
     # Train the model
     trainer.fit(model, data_module)
     
+    print("Training finished!")
+    print("Validating the best version of the model...")
+    
+    # Validate the best version
+    model.report_full_stats = True
+    trainer.validate(model, data_module, ckpt_path='best')
