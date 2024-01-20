@@ -40,7 +40,8 @@ class SpindleDetector(pl.LightningModule):
         self.val_samples = []
         self.val_samples_target_amount = 3
         self.visualizer = H5Visualizer()
-        self.best_val_loss = float('inf')
+        
+        self.report_full_stats = False
         
     def __deepcopy__(self, memo):    
         # Create a new instance of this class with the same arguments
@@ -52,6 +53,8 @@ class SpindleDetector(pl.LightningModule):
         # Copy model parameters
         new_instance.load_state_dict(self.state_dict())
         memo[id(self)] = new_instance
+        
+        return new_instance
 
     def forward(self, x):
         x = x.transpose(1, 2)
@@ -90,7 +93,7 @@ class SpindleDetector(pl.LightningModule):
         self.val_steps += 1
         return loss
     
-    def log_metric_results(self, name, results, val_loss_improved):
+    def log_metric_results(self, name, results):
         df_name_map = {
             'f1': ('f-measure',),
             'aucpr': ('AUC', 'AP'),
@@ -106,7 +109,7 @@ class SpindleDetector(pl.LightningModule):
             results[i].insert(0, 'row', results[i].index)
         
         # Log the tables to the logger, but only if val loss is improved
-        if val_loss_improved:
+        if self.report_full_stats:
             # Build the tables
             full_table = wandb.Table(dataframe=results[0])
             averages_table = wandb.Table(dataframe=results[1])
@@ -128,15 +131,13 @@ class SpindleDetector(pl.LightningModule):
     def on_validation_epoch_end(self) -> None:
         val_loss_mean = self.val_loss_sum / self.val_steps
         self.log('val_loss', val_loss_mean)
-        val_loss_improved = val_loss_mean < self.best_val_loss
-        self.best_val_loss = min(self.best_val_loss, val_loss_mean)
         
         results: dict[str, list[pd.DataFrame]] = self.evaluator.results()
         
-        self.log_metric_results('f1', results, val_loss_improved)
-        self.log_metric_results('aucpr', results, val_loss_improved)
+        self.log_metric_results('f1', results)
+        self.log_metric_results('aucpr', results)
         
-        if val_loss_improved:            
+        if self.report_full_stats:            
             plots = []
             for i, (x, y, y_hat) in enumerate(self.val_samples):
                 plot = self.visualizer.generate_prediction_plot(x, y, y_hat)
@@ -152,4 +153,18 @@ class SpindleDetector(pl.LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
-        return optimizer
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, 
+            patience=5,
+            factor=0.5,
+            verbose=True
+        )
+        return {
+            'optimizer': optimizer,
+            'lr_scheduler': {
+                'scheduler': scheduler,
+                'monitor': 'val_loss',
+                'interval': 'epoch',
+                'frequency': 1
+            }
+        }
