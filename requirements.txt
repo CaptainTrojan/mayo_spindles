@@ -18,6 +18,6 @@ sympy==1.12
 torch==2.1.2
 torchvision==0.16.2
 tqdm==4.66.1
-yasa==0.6.3
+yasa==0.6.4
 wandb
 
