@@ -5,6 +5,7 @@ import torch
 import yaml
 
 from mayo_spindles.model_repo.cdil import CDILModel
+from mayo_spindles.model_repo.cdil_rnns import CDILGRUModel, CDILLSTMModel, CDILRNNModel
 from mayo_spindles.yasa_util import OutputSuppressor
 from .base import BaseModel
 from .basic_models import CNNModel, GRUModel, LSTMModel, MLPModel, RNNModel
@@ -66,6 +67,10 @@ class ModelRepository:
         self.register("lstm", LSTMModel)
         
         self.register("cdil", CDILModel)
+        
+        self.register("cdil_rnn", CDILRNNModel)
+        self.register("cdil_gru", CDILGRUModel)
+        self.register("cdil_lstm", CDILLSTMModel)
 
         # tslib models
         for model_file in globals():
