@@ -8,16 +8,36 @@ from .evaluator import Evaluator
 
 from .model_repo.collection import ModelRepository
 
+class WindowAveraging(torch.nn.Module):
+    def __init__(self, window_size):
+        super().__init__()
+        self.window_size = window_size
+
+    def forward(self, x):
+        x = x.transpose(1, 2)
+        x = torch.nn.functional.avg_pool1d(x, self.window_size, stride=1, padding=self.window_size // 2)
+        x = x.transpose(1, 2)
+        return x
+
 class SpindleDetector(pl.LightningModule):   
-    def __init__(self, model_name, model_config, wandb_logger):
+    def __init__(self, model_name, model_config, detector_config, wandb_logger, metric, mode):
         super().__init__()
         
         self.model_name = model_name
         self.model_config = model_config
+        self.detector_config = detector_config
         # Load the model from the model repository
         repo = ModelRepository()
         self.model = repo.load(model_name, model_config)
-        self.sigmoid = torch.nn.Sigmoid()
+        
+        postprocessors = [
+            torch.nn.Sigmoid()
+        ]
+        
+        if detector_config['window_size'] > 0:
+            postprocessors.insert(0, WindowAveraging(detector_config['window_size']))
+        
+        self.postprocess = torch.nn.Sequential(*postprocessors)
         
         # Define the loss function
         self.loss = torch.nn.BCELoss()
@@ -26,6 +46,9 @@ class SpindleDetector(pl.LightningModule):
         self.evaluator = Evaluator()
         self.evaluator.add_metric('f1', Evaluator.INTERVAL_F_MEASURE)
         self.evaluator.add_metric('aucpr', Evaluator.INTERVAL_AUC_AP)
+        
+        self.metric = metric
+        self.mode = mode
         
         # Define the learning rate (this is a hyperparameter that can be tuned)
         self.lr = 1e-3
@@ -45,7 +68,9 @@ class SpindleDetector(pl.LightningModule):
         
     def __deepcopy__(self, memo):    
         # Create a new instance of this class with the same arguments
-        new_instance = SpindleDetector(self.model_name, self.model_config, self.wandb_logger)
+        new_instance = SpindleDetector(self.model_name, self.model_config,
+                                       self.detector_config, self.wandb_logger,
+                                       self.metric, self.mode)
         
         # Copy learning rate
         new_instance.lr = self.lr
@@ -59,7 +84,7 @@ class SpindleDetector(pl.LightningModule):
     def forward(self, x):
         x = x.transpose(1, 2)
         y_hat = self.model(x)
-        y_hat = self.sigmoid(y_hat)
+        y_hat = self.postprocess(y_hat)
         y_hat = y_hat.transpose(1, 2)
         return y_hat
     
@@ -110,6 +135,7 @@ class SpindleDetector(pl.LightningModule):
         
         # Log the tables to the logger, but only if val loss is improved
         if self.report_full_stats:
+            print("Logging result tables to wandb...")
             # Build the tables
             full_table = wandb.Table(dataframe=results[0])
             averages_table = wandb.Table(dataframe=results[1])
@@ -138,6 +164,7 @@ class SpindleDetector(pl.LightningModule):
         self.log_metric_results('aucpr', results)
         
         if self.report_full_stats:            
+            print("Logging predictions to wandb...")
             plots = []
             for i, (x, y, y_hat) in enumerate(self.val_samples):
                 plot = self.visualizer.generate_prediction_plot(x, y, y_hat)
@@ -155,7 +182,8 @@ class SpindleDetector(pl.LightningModule):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, 
-            patience=5,
+            mode=self.mode,
+            patience=3,
             factor=0.5,
             verbose=True
         )
@@ -163,7 +191,7 @@ class SpindleDetector(pl.LightningModule):
             'optimizer': optimizer,
             'lr_scheduler': {
                 'scheduler': scheduler,
-                'monitor': 'val_loss',
+                'monitor': self.metric,
                 'interval': 'epoch',
                 'frequency': 1
             }
