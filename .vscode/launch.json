@@ -47,7 +47,7 @@
             "program": "${workspaceFolder}/run.py",
             "console": "integratedTerminal",
             "justMyCode": false,
-            "args": ["--model", "mlp", "--data", "hdf5_data", "--epochs", "10", "--lr", "0.1", "--batch_size", "32", "--filter_bandwidth", "False"]
+            "args": ["--model", "cdil_gru", "--data", "hdf5_data", "--avg_window_size", "15", "--epochs", "10", "--lr", "0.1", "--batch_size", "32", "--filter_bandwidth", "False"]
         },
         {
             "name": "export dataset",
