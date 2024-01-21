@@ -30,6 +30,8 @@ if __name__ == '__main__':
     parser.add_argument('--model', type=str, choices=model_options, required=True, help='name of the model to train')
     parser.add_argument('--data', type=str, required=True, help='path to the data')
     # Optional arguments
+    parser.add_argument('--metric', type=str, default='val_AUC_avg', choices=['val_AUC_avg', 'val_AP_avg', 'val_loss'], help='Metric which will be used to select the best model (default: val_AUC_avg)')
+    parser.add_argument('--avg_window_size', type=int, default=0, help='window size for averaging the logits (default: 0 - no window)')
     parser.add_argument('--filter_bandwidth', type=str2bool, default=False, help='whether to bandfilter the data (default: False)')
     parser.add_argument('--model_config', type=str, default=None, help='path to the model config file (default: None)')
     parser.add_argument('--epochs', type=int, default=1, help='number of epochs to train (default: 1)')
@@ -56,21 +58,25 @@ if __name__ == '__main__':
         'additional_model_config': model_config,
         'bw_filter': args.filter_bandwidth,
     })
-    model = SpindleDetector(model_name, model_config, wandb_logger)
-
+    mode = 'min' if "loss" in args.metric else 'max'
+    detector_config = {
+        'window_size': args.avg_window_size,
+    }
+    model = SpindleDetector(model_name, model_config, detector_config, wandb_logger, args.metric, mode)
+    
     # Initialize a trainer with the StochasticWeightAveraging callback
     swa_callback = StochasticWeightAveraging(swa_lrs=1e-2)
     early_stopping_callback = EarlyStopping(
-        monitor='val_loss',
+        monitor=args.metric,
         patience=15,
-        mode='min',
+        mode=mode,
     )
     checkpoint_callback = ModelCheckpoint(
-        monitor='val_loss',
+        monitor=args.metric,
         dirpath='checkpoints',
-        filename='spindle-detector-{epoch:02d}-{val_loss:.2f}',
+        filename='spindle-detector-{epoch:02d}-{' + args.metric + ':.2f}',
         save_top_k=1,
-        mode='min',
+        mode=mode,
     )
     lr_monitor = LearningRateMonitor(logging_interval='epoch')
 
