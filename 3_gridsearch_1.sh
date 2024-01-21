@@ -2,7 +2,7 @@
 
 models=("cdil" "cdil_rnn" "cdil_gru" "cdil_lstm")
 filter_bandwidths=("True" "False")
-avg_window_sizes=("5" "10" "20")
+avg_window_sizes=("0" "5" "10" "20")
 
 for model in "${models[@]}"
 do
