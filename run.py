@@ -107,7 +107,7 @@ if __name__ == '__main__':
     if args.batch_size is not None:
         data_module.batch_size = args.batch_size
     else:
-        new_batch_size = tuner.scale_batch_size(model, datamodule=data_module, mode='power', max_trials=7, steps_per_trial=20)
+        new_batch_size = tuner.scale_batch_size(model, datamodule=data_module, mode='power', max_trials=5, steps_per_trial=20)
         new_batch_size = int(new_batch_size * 0.75)  # Reduce batch size a bit to be safe
         print(f"Suggested batch size: {new_batch_size}")
 
