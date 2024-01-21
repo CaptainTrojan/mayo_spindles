@@ -62,6 +62,7 @@ if __name__ == '__main__':
     detector_config = {
         'window_size': args.avg_window_size,
     }
+    detector_config['window_size'] += 1 if detector_config['window_size'] % 2 == 0 else 0
     model = SpindleDetector(model_name, model_config, detector_config, wandb_logger, args.metric, mode)
     
     # Initialize a trainer with the StochasticWeightAveraging callback
