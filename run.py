@@ -41,8 +41,6 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=None, help='batch size (default: None)')
     args = parser.parse_args()
     
-    # data_module = SpindleDataModule(args.data_dir, args.duration, num_workers=0, 
-    #                                 batch_size=1, should_convert_metadata_to_tensor=True)
     data_module = HDF5SpindleDataModule(args.data, batch_size=1, num_workers=args.num_workers,
                                         filter_bandwidth=args.filter_bandwidth)
     
@@ -57,6 +55,7 @@ if __name__ == '__main__':
         'model': model_name,
         'additional_model_config': model_config,
         'bw_filter': args.filter_bandwidth,
+        'avg_window_size': args.avg_window_size,
     })
     mode = 'min' if "loss" in args.metric else 'max'
     detector_config = {
