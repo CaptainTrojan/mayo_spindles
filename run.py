@@ -30,6 +30,7 @@ if __name__ == '__main__':
     parser.add_argument('--model', type=str, choices=model_options, required=True, help='name of the model to train')
     parser.add_argument('--data', type=str, required=True, help='path to the data')
     # Optional arguments
+    parser.add_argument('--checkpoint_path', type=str, default='checkpoints', help='path to the checkpoints (default: checkpoints)')
     parser.add_argument('--metric', type=str, default='val_AUC_avg', choices=['val_AUC_avg', 'val_AP_avg', 'val_loss'], help='Metric which will be used to select the best model (default: val_AUC_avg)')
     parser.add_argument('--avg_window_size', type=int, default=0, help='window size for averaging the logits (default: 0 - no window)')
     parser.add_argument('--filter_bandwidth', type=str2bool, default=False, help='whether to bandfilter the data (default: False)')
@@ -56,6 +57,7 @@ if __name__ == '__main__':
         'additional_model_config': model_config,
         'bw_filter': args.filter_bandwidth,
         'avg_window_size': args.avg_window_size,
+        'checkpoint_path': args.checkpoint_path,
     })
     mode = 'min' if "loss" in args.metric else 'max'
     detector_config = {
@@ -73,7 +75,7 @@ if __name__ == '__main__':
     )
     checkpoint_callback = ModelCheckpoint(
         monitor=args.metric,
-        dirpath='checkpoints',
+        dirpath=args.checkpoint_path,
         filename='spindle-detector-{epoch:02d}-{' + args.metric + ':.2f}',
         save_top_k=1,
         mode=mode,
