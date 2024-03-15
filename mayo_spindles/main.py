@@ -6,8 +6,10 @@ from mef_tools.io import MefWriter, MefReader
 import string
 import itertools
 import time
+import pprint
 
-reader = MefReader('data/sub-MH1_ses-EMU1_merged.mefd', password2='imagination')
+# reader = MefReader('data/sub-MH1_ses-EMU1_merged.mefd', password2='imagination')
+reader = MefReader('model_annotations.mefd', password2='imagination')
 
 start = 1576558776722156
 end = 1576558806722156
@@ -16,9 +18,7 @@ a = time.time()
 
 all_data = []
 for channel in reader.channels:
-    data = reader.get_data(channel, start, end)
-    print(data.shape)
-    all_data.append(data)
+    pprint.pprint(reader.get_channel_info(channel))
 # all_data = np.stack(all_data, axis=1)
 # print(all_data.shape)
 

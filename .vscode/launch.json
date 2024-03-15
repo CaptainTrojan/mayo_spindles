@@ -6,7 +6,7 @@
     "configurations": [
         {
             "name": "Python: Current File",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
@@ -14,7 +14,7 @@
         },
         {
             "name": "run yasa",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/run_yasa.py",
             "console": "integratedTerminal",
@@ -22,7 +22,7 @@
         },
         {
             "name": "perform analysis",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/perform_analysis.py",
             "console": "integratedTerminal",
@@ -30,7 +30,7 @@
         },
         {
             "name": "visualization",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/visualizer.py",
             "console": "integratedTerminal",
@@ -42,7 +42,7 @@
         },
         {
             "name": "training",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/run.py",
             "console": "integratedTerminal",
@@ -51,7 +51,7 @@
         },
         {
             "name": "export dataset",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/export_hdf5_dataset.py",
             "console": "integratedTerminal",
@@ -60,11 +60,26 @@
         },
         {
             "name": "h5 visualizer",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/test_h5py_visualizer.py",
             "console": "integratedTerminal",
             "justMyCode": false,
         },
+        {
+            "name": "annotate",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/annotate.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--data_path", "hdf5_data",
+                "--checkpoint_path", "checkpoints/spindle-detector-epoch=18-val_AUC_avg=0.92.ckpt",
+                "--filter_bandwidth", "True",
+                "--model", "cdil",
+                "--avg_window_size", "3",
+            ]
+        }
     ]
 }

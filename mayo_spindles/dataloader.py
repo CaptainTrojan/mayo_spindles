@@ -32,8 +32,8 @@ class PreprocessingStaticFactory:
         return Preprocessing(True, True, None)
     
     @staticmethod
-    def NORM_BANDPASS_11_15():
-        return Preprocessing(True, False, (11, 15))
+    def NORM_BANDPASS_10_16():
+        return Preprocessing(True, False, (10, 16))
     
 
 class Preprocessing:    
@@ -50,13 +50,13 @@ class Preprocessing:
             assert self.__fsamp == fsamp, f"Expected sampling frequency to be common for each patient, but got {self.__fsamp} and {fsamp}"
 
     def __call__(self, data):
+        # Apply frequency filter
+        if self.__frequency_filter:
+            data = self._filter_frequency(data, *self.__frequency_filter)
+            
         # Normalize data
         if self.__normalize:
             data = self._normalize(data)
-
-        # Apply frequency filter
-        if self.__frequency_filter:
-            data = self._frequency_filter(data)
 
         # Apply CWT
         if self.__apply_cwt:
@@ -65,16 +65,29 @@ class Preprocessing:
         return data
 
     def _normalize(self, data):
-        return np.nan_to_num((data - np.mean(data, axis=1)[:, np.newaxis]) / np.std(data, axis=1)[:, np.newaxis], nan=0.0)
+        if isinstance(data, np.ndarray):
+            normed = (data - np.mean(data, axis=1, keepdims=True)) / np.std(data, axis=1, keepdims=True)
+            return np.nan_to_num(normed, nan=0.0)
+        elif isinstance(data, torch.Tensor):
+            normed = (data - torch.mean(data, dim=1, keepdim=True)) / torch.std(data, dim=1, keepdim=True)
+            return torch.nan_to_num(normed, nan=0.0)
+        else:
+            raise TypeError("Unsupported data type. Expected np.ndarray or torch.Tensor.")
 
-    def _frequency_filter(self, data):
-        frequency_range = self.__frequency_filter
-        nyquist = 0.5 * self.__fsamp
-        low, high = frequency_range
+    def _filter_frequency(self, data, low, high):
+        fsamp = 250
+        nyquist = 0.5 * fsamp
         low /= nyquist
         high /= nyquist
-        b, a = signal.butter(7, [low, high], btype='band')
-        return signal.filtfilt(b, a, data)
+        sos = signal.butter(7, [low, high], btype='band', output='sos')
+        if isinstance(data, np.ndarray):
+            filtered = signal.sosfiltfilt(sos, data, axis=1)
+            return filtered.astype(np.float32)
+        elif isinstance(data, torch.Tensor):
+            filtered = torch.from_numpy(signal.sosfiltfilt(sos, data.numpy(), axis=1).copy())
+            return filtered.float()
+        else:
+            raise TypeError("Unsupported data type. Expected np.ndarray or torch.Tensor.")
 
     def _apply_cwt(self, data):
         widths = np.arange(1, 10)
@@ -303,7 +316,8 @@ class PatientHandle:
         if self._report_analysis and spindles_exist:
             self.__plot_intervals(include_spindles=True)
             
-        self.__prune_segments()
+        if self._spindle_data_radius >= 0:  # If negative, do not prune segments and instead use all of them
+            self.__prune_segments()
         
         if self._report_analysis and spindles_exist:
             self.__plot_segments()
@@ -543,7 +557,8 @@ class SpindleDataset(Dataset):
     def __init__(self, 
                  report_analysis=False,
                  only_intracranial_data=True,
-                 preprocessing: Preprocessing = PreprocessingStaticFactory.NO_PREPROCESSING()
+                 preprocessing: Preprocessing = PreprocessingStaticFactory.NO_PREPROCESSING(),
+                 spindle_data_radius: int = 0,
                  ):
         self._patient_handles = {}
         self._lengths = []
@@ -552,6 +567,7 @@ class SpindleDataset(Dataset):
         self._preprocessing = preprocessing
         self._unregistered_readers = []
         self._common_sampling_rate = 0
+        self._spindle_data_radius = spindle_data_radius
 
     def register_main_csv(self, csv_file):
         print(f"Registering main csv file {csv_file}")
@@ -603,6 +619,7 @@ class SpindleDataset(Dataset):
                                        preprocessing=self._preprocessing,
                                        report_analysis=self._report_analysis,
                                        only_intracranial_data=self._only_intracranial_data,
+                                       spindle_data_radius=self._spindle_data_radius
                                        )
         self._patient_handles[(patient_id, emu_id)] = patient_handle
                 
@@ -679,9 +696,12 @@ class SpindleDataModule(LightningDataModule):
     def __init__(self, data_dir, duration, intracranial_only=True, batch_size: int = 64,
                  should_convert_metadata_to_tensor: bool = False,
                  num_workers: int = 0,
-                 train_only=False):
+                 train_only=False,
+                 preprocessing=PreprocessingStaticFactory.NO_PREPROCESSING(),
+                 spindle_data_radius=0,):
         super().__init__()
-        self.dataset = SpindleDataset(only_intracranial_data=intracranial_only)
+        self.dataset = SpindleDataset(only_intracranial_data=intracranial_only,
+                                      preprocessing=preprocessing, spindle_data_radius=spindle_data_radius)
         for file in os.listdir(data_dir):
             if file.endswith('.csv'):
                 self.dataset.register_main_csv(os.path.join(data_dir, file))
@@ -721,7 +741,7 @@ class SpindleDataModule(LightningDataModule):
 import numpy as np
 
 class HDF5Dataset(Dataset):
-    def __init__(self, data_dir, split, filter_bandwidth, augmentations_size=0):
+    def __init__(self, data_dir, split, filter_bandwidth, normalize=True, augmentations_size=0):
         super().__init__()
         self.file_path = os.path.join(data_dir, 'data.h5')
         self.splits_path = os.path.join(data_dir, 'splits.json')
@@ -733,6 +753,7 @@ class HDF5Dataset(Dataset):
         self.file = None
         self.augmentations = augmentations_size > 0
         self.augmentations_size = augmentations_size
+        self.normalize = normalize
         self.filter_bandwidth = filter_bandwidth
         
         self.indices = self.splits[split]
@@ -825,7 +846,8 @@ class HDF5Dataset(Dataset):
         if col == 'x':
             if self.filter_bandwidth:
                 el = self.__filter_frequency(el, 10, 16)
-            el = self.__normalize(el)
+            if self.normalize:
+                el = self.__normalize(el)
         
         return el
     

@@ -1,13 +1,32 @@
 import argparse
+import os
+import pandas as pd
 import torch
 
 import yaml
+from mayo_spindles.evaluator import Evaluator
 from mayo_spindles.model_repo.collection import ModelRepository
-from mayo_spindles.dataloader import SpindleDataModule, HDF5SpindleDataModule
+from mayo_spindles.dataloader import HDF5Dataset, SpindleDataModule, PreprocessingStaticFactory
 from mayo_spindles.lightningmodel import SpindleDetector
 from torch.utils.data import DataLoader
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.loggers import WandbLogger
+from mef_tools.io import MefWriter
+from best.annotations.io import save_CyberPSG
+from tqdm import tqdm
+
+from mayo_spindles.yasa_util import OutputSuppressor
+
+
+class FakeWandbLogger:
+    """
+    A fake logger that does nothing.
+    Implements self.watch(...) because it is called in the model.
+    """
+    
+    def watch(self, *args, **kwargs):
+        pass
 
 
 def str2bool(v):
@@ -24,7 +43,7 @@ def str2bool(v):
         raise argparse.ArgumentTypeError("Boolean value expected.")
 
 
-def predict_all(model_path, data_path, num_workers=10, filter_bandwidth=False):
+def predict_all(args):
     """
     Performs inference on the entire dataset and saves the predictions.
 
@@ -36,47 +55,66 @@ def predict_all(model_path, data_path, num_workers=10, filter_bandwidth=False):
     """
 
     # Load the model
-    model = SpindleDetector.load_from_checkpoint(model_path)
-
-    # Create the data module
-    data_module = HDF5SpindleDataModule(
-        data_path, batch_size=1, num_workers=num_workers, filter_bandwidth=filter_bandwidth
+    model = SpindleDetector.load_from_checkpoint(
+        checkpoint_path=args.checkpoint_path,
+        model_name=args.model,
+        model_config=model_config,
+        detector_config=detector_config,
+        wandb_logger=wandb_logger,
+        metric=args.metric,
+        mode=mode,
     )
+    
+    dm = SpindleDataModule('data', 30, batch_size=32, train_only=True,
+                           preprocessing=PreprocessingStaticFactory.NORM_BANDPASS_10_16(),
+                           spindle_data_radius=-1)  # Take all the data
+    dm.setup()
+    dataloader = dm.train_dataloader()
+    max_batches = None
+    
+    # Set the model to evaluation mode
+    model.eval()
 
-    # Join train, val and test dataloaders
-    combined_data_loader = DataLoader(
-        dataset=torch.utils.data.ConcatDataset([
-            data_module.train_dataloader().dataset,
-            data_module.val_dataloader().dataset,
-            data_module.test_dataloader().dataset
-        ]),
-        batch_size=32,
-        num_workers=num_workers
-    )
-
-    # Prepare output storage
-    predictions = []
-
+    # column_names = ['start', 'end', 'annotation']
+    # annotations_df = pd.DataFrame(columns=column_names)
+    annotations_by_patient_and_emu = {}
+    
+    if max_batches is None:
+        max_batches = len(dataloader)
+        print(f"max_batches is None, setting it to {max_batches} (number of batches in the data loader)")
+    
     # Perform inference on each data point
-    for X, _ in combined_data_loader:
+    for K, ((X, Y)) in tqdm(enumerate(dataloader), desc="Processing data", unit="batch", total=max_batches):
+        if K >= max_batches:
+            break
+        
         # Move data to GPU if available
         X = X.to(model.device)
 
         # Make predictions
         preds = model(X)
-
-        # Extract relevant information and predictions
-        # (You might need to modify this part based on your specific data format)
-        # data_info = ...
-        # pred_tags = ...
-
-        # Store predictions
-        predictions.append((data_info, pred_tags))
-
-    # Save predictions (replace with your preferred saving method)
-    with open("predictions.pkl", "wb") as f:
-        pickle.dump(predictions, f)
-
+        intervals = Evaluator.batch_model_predictions_to_intervals(
+            preds,
+            threshold=0.2,  # We want the model to be overconfident to prevent annotators from agreeing with the model all the time
+        )
+        
+        for y, (start, end, annotation) in zip(Y, intervals):
+            key = (y['patient_id'], y['emu_id'])
+            if key not in annotations_by_patient_and_emu:
+                annotations_by_patient_and_emu[key] = []
+            start_anchor = y['start_time']
+            end_anchor = y['end_time']
+            true_start = (end_anchor - start_anchor) * start + start_anchor
+            true_end = (end_anchor - start_anchor) * end + start_anchor
+            annotations_by_patient_and_emu[key].append((true_start, true_end, annotation))
+            
+    os.makedirs('annotations', exist_ok=True)
+    for key, annotations in tqdm(annotations_by_patient_and_emu.items(), desc="Saving annotations", unit="patient"):
+        patient, emu = key
+        annotations_df = pd.DataFrame(annotations, columns=['start', 'end', 'annotation'])
+        fn = f'sub-MH{patient}_ses-EMU{emu}_merged.xml'
+        path = os.path.join('annotations', fn)
+        save_CyberPSG(path, annotations_df)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Perform inference on Spindle Detector")
@@ -90,14 +128,26 @@ if __name__ == "__main__":
         "--data_path", type=str, required=True, help="Path to the HDF5 data file"
     )
     parser.add_argument(
-        "--num_workers", type=int, default=10, help="Number of workers for the data loader"
+        "--num_workers", type=int, default=4, help="Number of workers for the data loader"
     )
-    parser.add_argument(
-        "--filter_bandwidth",
-        type=str2bool,
-        default=False,
-        help="Whether to bandfilter the data",
-    )
+    parser.add_argument('--model', type=str, required=True, help='name of the model to train')
+    parser.add_argument('--metric', type=str, default='val_AUC_avg', choices=['val_AUC_avg', 'val_AP_avg', 'val_loss'], help='Metric which will be used to select the best model (default: val_AUC_avg)')
+    parser.add_argument('--avg_window_size', type=int, default=0, help='window size for averaging the logits (default: 0 - no window)')
+    parser.add_argument('--filter_bandwidth', type=str2bool, default=False, help='whether to bandfilter the data (default: False)')
+    parser.add_argument('--model_config', type=str, default=None, help='path to the model config file (default: None)')
     args = parser.parse_args()
+    
+    model_name = args.model
+    if args.model_config is not None:
+        model_config = yaml.safe_load(open(args.model_config, 'r'))
+    else:
+        model_config = {}
+        
+    wandb_logger = FakeWandbLogger()
+    mode = 'min' if "loss" in args.metric else 'max'
+    detector_config = {
+        'window_size': args.avg_window_size,
+    }
+    detector_config['window_size'] += 1 if detector_config['window_size'] % 2 == 0 else 0
 
-    predict_all(args.checkpoint_path, args.data_path, args.num_workers, args.filter_bandwidth)
+    predict_all(args)

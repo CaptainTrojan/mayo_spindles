@@ -329,6 +329,65 @@ class Evaluator:
         for channel, label in cls.CHANNEL_TO_CLASS.items():
             x[channel] = y[label]
         return x
+    
+    @classmethod
+    def batch_model_predictions_to_intervals(cls, y: torch.Tensor, threshold: float, interval_size: tuple[int, int] = (250, 500)):
+        """
+        Converts raw model predictions to intervals representing predicted sleep spindles
+        using ratio-based optimal end selection.
+
+        Args:
+            y: A torch.Tensor of shape (batch_size, num_classes, num_samples) containing model predictions.
+            threshold: A float threshold for selecting confident predictions.
+            fsamp: The sampling frequency of the data. (Default: 250 Hz)
+            interval_size: A tuple (min_size, max_size) defining the desired range for spindle durations.
+
+        Returns:
+            A list of tuples (start, end, annotation) representing predicted sleep spindles.
+            start and end are in seconds, and are offset by batch_id * num_samples / fsamp.
+        """
+
+        intervals = []
+
+        # Iterate over batch and class dimensions
+        for batch_id in range(y.shape[0]):           
+            for class_id in range(y.shape[1]):
+                # Apply thresholding and convert to numpy array
+                predictions = y[batch_id, class_id, :] > threshold
+                predictions = predictions.detach().cpu().numpy().astype(np.uint8)
+
+                # Find all possible starts
+                starts = np.where(np.diff(predictions) == 1)[0] + 1
+                
+                # Declare "last_end" so we can skip starts that are before the last end
+                last_end = -1
+                annotation = cls.CLASSES_INV[class_id]
+
+                # For each start, find optimal end based on ratio
+                for start_idx in starts:
+                    if start_idx <= last_end:
+                        continue
+                    best_ratio = 0
+                    best_end = None
+                    for end_idx in range(start_idx + interval_size[0], start_idx + interval_size[1] + 1, 10):
+                        if end_idx >= len(predictions):
+                            break
+                        interval_length = end_idx - start_idx + 1
+                        ratio = np.sum(predictions[start_idx:end_idx + 1]) / interval_length
+                        if ratio >= best_ratio:
+                            best_ratio = ratio
+                            best_end = end_idx
+
+                    # Add interval if best ratio is good enough
+                    if best_ratio >= 0.7 and best_end is not None:
+                        last_end = best_end
+                        # Annotation = class id to class name
+                        start_time = start_idx / len(predictions)
+                        end_time = best_end / len(predictions)
+                        intervals.append((start_time, end_time, annotation))
+
+        return intervals
+        
         
     def __init__(self):
         self._metrics = []
