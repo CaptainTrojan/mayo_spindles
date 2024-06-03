@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-from mayo_spindles.evaluator import Evaluator
+from evaluator import Evaluator
 
 
 class H5Visualizer:

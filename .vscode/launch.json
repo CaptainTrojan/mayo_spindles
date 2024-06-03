@@ -1,7 +1,4 @@
 {
-    // Use IntelliSense to learn about possible attributes.
-    // Hover to view descriptions of existing attributes.
-    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
         {
@@ -13,26 +10,26 @@
             "justMyCode": false
         },
         {
-            "name": "run yasa",
+            "name": "Run YASA",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/run_yasa.py",
+            "program": "mayo_spindles/run_yasa.py",
             "console": "integratedTerminal",
             "justMyCode": false
         },
         {
-            "name": "perform analysis",
+            "name": "Perform Analysis",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/perform_analysis.py",
+            "program": "mayo_spindles/perform_analysis.py",
             "console": "integratedTerminal",
             "justMyCode": false
         },
         {
-            "name": "visualization",
+            "name": "Visualization",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/visualizer.py",
+            "program": "mayo_spindles/visualizer.py",
             "console": "integratedTerminal",
             "justMyCode": false,
             "args": [
@@ -41,36 +38,36 @@
             ]
         },
         {
-            "name": "training",
+            "name": "Training",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/run.py",
+            "program": "mayo_spindles/run.py",
             "console": "integratedTerminal",
             "justMyCode": false,
             "args": ["--model", "cdil_gru", "--data", "hdf5_data", "--avg_window_size", "15", "--epochs", "10", "--lr", "0.1", "--batch_size", "32", "--filter_bandwidth", "False"]
         },
         {
-            "name": "export dataset",
+            "name": "Export Dataset",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/export_hdf5_dataset.py",
+            "program": "mayo_spindles/export_hdf5_dataset.py",
             "console": "integratedTerminal",
             "justMyCode": false,
             "args": ["--data_dir", "data", "--output_dir", "hdf5_data", "--duration", "30"]
         },
         {
-            "name": "h5 visualizer",
+            "name": "H5 Visualizer",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/test_h5py_visualizer.py",
+            "program": "mayo_spindles\\test_h5py_visualizer.py",
             "console": "integratedTerminal",
             "justMyCode": false,
         },
         {
-            "name": "annotate",
+            "name": "Annotate",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/annotate.py",
+            "program": "mayo_spindles/annotate.py",
             "console": "integratedTerminal",
             "justMyCode": false,
             "args": [
@@ -79,6 +76,18 @@
                 "--filter_bandwidth", "True",
                 "--model", "cdil",
                 "--avg_window_size", "3",
+            ]
+        },
+        {
+            "name": "Active learning: build merged annotations",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/active_learning_backfill.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--data_dir", "data",
+                "--al_annotations_dir", "activelearning_annotations"
             ]
         }
     ]

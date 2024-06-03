@@ -384,7 +384,7 @@ class Evaluator:
                         # Annotation = class id to class name
                         start_time = start_idx / len(predictions)
                         end_time = best_end / len(predictions)
-                        intervals.append((start_time, end_time, annotation))
+                        intervals.append((batch_id, start_time, end_time, annotation))
 
         return intervals
         

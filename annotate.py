@@ -4,7 +4,7 @@ import pandas as pd
 import torch
 
 import yaml
-from mayo_spindles.evaluator import Evaluator
+from mayo_spindles.evaluator import Evaluator, IntervalAUCAP
 from mayo_spindles.model_repo.collection import ModelRepository
 from mayo_spindles.dataloader import HDF5Dataset, SpindleDataModule, PreprocessingStaticFactory
 from mayo_spindles.lightningmodel import SpindleDetector
@@ -65,12 +65,17 @@ def predict_all(args):
         mode=mode,
     )
     
+    # Evaluator
+    evaluator = Evaluator()
+    evaluator.add_metric("AUC", IntervalAUCAP)
+    
     dm = SpindleDataModule('data', 30, batch_size=32, train_only=True,
                            preprocessing=PreprocessingStaticFactory.NORM_BANDPASS_10_16(),
-                           spindle_data_radius=-1)  # Take all the data
+                           spindle_data_radius=0)  # Take all the data
+                        #    spindle_data_radius=-1)  # Take all the data
     dm.setup()
     dataloader = dm.train_dataloader()
-    max_batches = None
+    max_batches = 3
     
     # Set the model to evaluation mode
     model.eval()
@@ -82,7 +87,7 @@ def predict_all(args):
     if max_batches is None:
         max_batches = len(dataloader)
         print(f"max_batches is None, setting it to {max_batches} (number of batches in the data loader)")
-    
+
     # Perform inference on each data point
     for K, ((X, Y)) in tqdm(enumerate(dataloader), desc="Processing data", unit="batch", total=max_batches):
         if K >= max_batches:
@@ -90,15 +95,37 @@ def predict_all(args):
         
         # Move data to GPU if available
         X = X.to(model.device)
+        
+        artifact = has_artifact(X)
+        if artifact:
+            print(f"Artifact detected in batch {K}, skipping")
+            continue
 
         # Make predictions
-        preds = model(X)
+        preds = model.forward(X)
+        
+        # Evaluate the predictions, but drop Y and preds row if Y is empty
+        y_pred = []
+        y_true = []
+        for i, elem in enumerate(Y):
+            if len(elem['spindles']['M_ID']) == 0:
+                continue
+            y_true.append(elem)
+            y_pred.append(preds[i])
+        
+        if len(y_true) > 0:
+            y_pred = torch.stack(y_pred)
+            y_true = Evaluator.batch_metadata_to_classes(y_true, y_pred.shape[2])
+            evaluator.batch_evaluate_no_conversion(y_true, y_pred)
+            print(evaluator.results())
+        
         intervals = Evaluator.batch_model_predictions_to_intervals(
             preds,
-            threshold=0.2,  # We want the model to be overconfident to prevent annotators from agreeing with the model all the time
+            threshold=0.5,  
         )
-        
-        for y, (start, end, annotation) in zip(Y, intervals):
+                
+        for (batch_id, start, end, annotation) in intervals:
+            y = Y[batch_id]
             key = (y['patient_id'], y['emu_id'])
             if key not in annotations_by_patient_and_emu:
                 annotations_by_patient_and_emu[key] = []

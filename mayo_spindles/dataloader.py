@@ -14,9 +14,10 @@ from scipy import signal
 from pytorch_lightning import LightningDataModule
 import warnings
 import h5py
-from mayo_spindles.evaluator import Evaluator
+from evaluator import Evaluator
 
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="pymef.mef_session", lineno=1391)
+warnings.filterwarnings("ignore", category=RuntimeWarning, module="pymef.mef_session", lineno=1401)
 
 class PreprocessingStaticFactory:
     @staticmethod
@@ -289,15 +290,18 @@ class PatientHandle:
         df = pd.DataFrame(rows_to_keep, columns=header).sort_values(by=['Start'])
         
         # numeric
-        for col in ["Start","End"]:
+        for col in ["Start","End", "Duration"]:
             df[col] = pd.to_numeric(df[col])
             
         # boolean from "TRUE"/"FALSE"
         for col in "Partic_MID,Detail,Partic_LT,Partic_RT,Partic_LH,Partic_RH,Partic_LC,Partic_RC".split(','):
-            df[col] = df[col] == "TRUE"
+            df[col] = df[col].apply(lambda x: x.lower() == "true")
             
         # if Detail is False, drop row
         df = df[df['Detail'] == True]
+        
+        # Drop all spindles with duration greater than 2.5 seconds - likely false positives
+        df = df[df['Duration'] <= 2.5]
         
         # reset index
         df = df.reset_index(drop=True)
@@ -743,7 +747,7 @@ import numpy as np
 class HDF5Dataset(Dataset):
     def __init__(self, data_dir, split, filter_bandwidth, normalize=True, augmentations_size=0):
         super().__init__()
-        self.file_path = os.path.join(data_dir, 'data.h5')
+        self.file_path = os.path.join(data_dir, 'data.hdf5')
         self.splits_path = os.path.join(data_dir, 'splits.json')
         with open(self.splits_path, 'r') as f:
             self.splits = json.load(f)
