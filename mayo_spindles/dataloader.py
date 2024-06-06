@@ -743,9 +743,55 @@ class SpindleDataModule(LightningDataModule):
     
 
 import numpy as np
+import librosa
+import pywt
+
+def spectrogram_from_eeg(x):    
+    # VARIABLE TO HOLD SPECTROGRAM
+    x = denoise(x)
+
+    # RAW SPECTROGRAM
+    win_length = 512
+    hop_length = len(x) // 512
+    mel_spec = librosa.feature.melspectrogram(y=x,
+                                              sr=250,
+                                              hop_length=hop_length,
+                                              n_mels=128,
+                                              fmin=8,
+                                              fmax=18,
+                                              win_length=win_length,
+                                              center=True)
+
+    # LOG TRANSFORM
+    width = (mel_spec.shape[1]//32)*32
+    mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max).astype(np.float32)[:,:width]
+
+    # STANDARDIZE TO -1 TO 1
+    mel_spec_db = (mel_spec_db+40)/40
+    
+    # Pad the image to make it aligned with the signal
+    # pad_size = win_length // 4
+    # mel_spec_db = np.pad(mel_spec_db, ((0, 0), (0, pad_size)), 'constant', constant_values=0)
+    
+    return mel_spec_db
+    
+# DENOISE FUNCTION
+def maddest(d, axis=None):
+    return np.mean(np.absolute(d - np.mean(d, axis)), axis)
+
+def denoise(x, wavelet='haar', level=1):    
+    coeff = pywt.wavedec(x, wavelet, mode="per")
+    sigma = (1/0.6745) * maddest(coeff[-level])
+
+    uthresh = sigma * np.sqrt(2*np.log(len(x)))
+    coeff[1:] = (pywt.threshold(i, value=uthresh, mode='hard') for i in coeff[1:])
+
+    ret=pywt.waverec(coeff, wavelet, mode='per')
+    
+    return ret
 
 class HDF5Dataset(Dataset):
-    def __init__(self, data_dir, split, filter_bandwidth, normalize=True, augmentations_size=0):
+    def __init__(self, data_dir, split, augmentations_size=0):
         super().__init__()
         self.file_path = os.path.join(data_dir, 'data.hdf5')
         self.splits_path = os.path.join(data_dir, 'splits.json')
@@ -757,8 +803,6 @@ class HDF5Dataset(Dataset):
         self.file = None
         self.augmentations = augmentations_size > 0
         self.augmentations_size = augmentations_size
-        self.normalize = normalize
-        self.filter_bandwidth = filter_bandwidth
         
         self.indices = self.splits[split]
         self.len = len(self.indices)
@@ -769,20 +813,22 @@ class HDF5Dataset(Dataset):
             self.seq_len = hf['x'].shape[2]
 
     def __len__(self):
-        return self.len if not self.augmentations else self.augmentations_size
+        return self.len * 4 if not self.augmentations else self.augmentations_size * 4
 
     def __getitem__(self, index):
         if self.file is None:
             self.file = h5py.File(self.file_path, 'r')
-
+            
         if self.augmentations:
             x, y = self.__augmented_select(index)
             
         else:
-            index = self.indices[index]
+            datum_index = index // 4
+            datum_index = self.indices[datum_index]
+            offset = index % 4
+            target_index = datum_index * 4 + offset
             
-            x = self.__load_one_element('x', index)
-            y = self.__load_one_element('y', index)
+            x, y = self.__load_one_xy_pair(target_index)
 
         return x, y
     
@@ -791,15 +837,17 @@ class HDF5Dataset(Dataset):
         np.random.seed(index)
         
         # Randomly select 2-3 indices
-        indices = np.random.choice(self.indices, np.random.randint(2, 4))
+        bases = np.random.choice(self.len, np.random.randint(2, 4))
+        offsets = np.random.randint(0, 4, len(bases))
+        base_indices = [self.indices[base] for base in bases]
+        indices = [base * 4 + offset for base, offset in zip(base_indices, offsets)]    
         
         X = []
         Y = []
 
         for idx in indices:
             # Get the (x, y) pair for the selected index
-            x_aug = self.__load_one_element('x', idx)
-            y_aug = self.__load_one_element('y', idx)
+            x_aug, y_aug = self.__load_one_xy_pair(idx)
 
             X.append(x_aug)
             Y.append(y_aug)
@@ -829,59 +877,83 @@ class HDF5Dataset(Dataset):
 
         return x, y
     
-    def __normalize(self, data: torch.Tensor):
-        normed = (data - torch.mean(data, dim=1, keepdim=True)) / torch.std(data, dim=1, keepdim=True)
-        return torch.nan_to_num(normed, nan=0.0)
+    def __normalize(self, data: np.ndarray):
+        normed = (data - np.mean(data, axis=1).reshape(-1, 1)) / np.std(data, axis=1).reshape(-1, 1)
+        return np.nan_to_num(normed, nan=0.0)
     
-    def __filter_frequency(self, data: torch.Tensor, low: int, high: int):
-        # Data shape = (num_channels, seq_len)
+    def __convert_to_spectrogram(self, data: np.ndarray):
+        # Data shape = (num_channels, seq_len), which should be (4, 7500)
         fsamp = 250
+        window = 'hann'
+        nperseg = 64
+        noverlap = 32
+        f, t, Zxx = signal.stft(data, fs=fsamp, window=window, nperseg=nperseg, noverlap=noverlap)
+        Sxx = np.abs(Zxx) ** 2
+        Sxx = np.log1p(Sxx)
+        return Sxx.astype(np.float32)
+
+    
+    def __load_one_xy_pair(self, index):
+        x = self.__load_one_element('x', index // 4)
+        y = self.__load_one_element('y', index // 4)
         
-        nyquist = 0.5 * fsamp
-        low /= nyquist
-        high /= nyquist
-        sos = signal.butter(7, [low, high], btype='band', output='sos')
-        filtered = torch.from_numpy(signal.sosfiltfilt(sos, data.numpy(), axis=1).copy())
-        return filtered.float()
+        # Select only the channel corresponding to index
+        selected_channel = index % 4
+        x = x[selected_channel]
+        specgram = spectrogram_from_eeg(x)
+
+        y_class = Evaluator.CHANNEL_TO_CLASS[selected_channel]
+        y = y[y_class]
+        y_class = np.array(y_class, dtype=np.int32)
+        
+        ret = {'raw_signal': x, 'spectrogram': specgram}, {'segmap': y, 'class': y_class}
+        
+        # Convert to torch tensors
+        ret = {k: torch.from_numpy(v) for k, v in ret[0].items()}, {k: torch.from_numpy(v) for k, v in ret[1].items()}
+        return ret
 
     def __load_one_element(self, col, idx):
         el = self.__load_one_element_raw(col, idx)
         
         if col == 'x':
-            if self.filter_bandwidth:
-                el = self.__filter_frequency(el, 10, 16)
-            if self.normalize:
-                el = self.__normalize(el)
+            el = self.__normalize(el)
         
         return el
     
     def __load_one_element_raw(self, col, idx):
-        return torch.from_numpy(self.file[col][idx])
+        return self.file[col][idx]
+    
+    @staticmethod
+    def collate_fn(batch: list[dict[str, torch.Tensor]]):
+        # Convert the list of dictionaries to a dictionary of tensors
+        X = {k: torch.stack([d[k] for d in batch], dim=0) for k in batch[0].keys()}
+        Y = {k: torch.stack([d[k] for d in batch], dim=0) for k in batch[0].values()}
+        
+        return X, Y
 
 
 class HDF5SpindleDataModule(LightningDataModule):
-    def __init__(self, data_dir, batch_size=32, num_workers=0,
-                 filter_bandwidth=False):
+    def __init__(self, data_dir, batch_size=32, num_workers=0):
         super().__init__()
         self.data_dir = data_dir
         self.batch_size = batch_size
         self.num_workers = num_workers
             
-        self.train_dataset = HDF5Dataset(self.data_dir, 'train', filter_bandwidth, augmentations_size=2000)
-        self.val_dataset = HDF5Dataset(self.data_dir, 'val', filter_bandwidth)
-        self.test_dataset = HDF5Dataset(self.data_dir, 'test', filter_bandwidth)
+        self.train_dataset = HDF5Dataset(self.data_dir, 'train', augmentations_size=2000)
+        self.val_dataset = HDF5Dataset(self.data_dir, 'val')
+        self.test_dataset = HDF5Dataset(self.data_dir, 'test')
 
     def setup(self, stage=None):
         None
         
     def train_dataloader(self):
         return DataLoader(self.train_dataset, batch_size=self.batch_size, num_workers=self.num_workers,
-                           persistent_workers=True, shuffle=True)
+                           persistent_workers=True, shuffle=True, collate_fn=HDF5Dataset.collate_fn)
 
     def val_dataloader(self):
         return DataLoader(self.val_dataset, batch_size=self.batch_size, num_workers=self.num_workers,
-                          persistent_workers=True)
+                          persistent_workers=True, collate_fn=HDF5Dataset.collate_fn)
 
     def test_dataloader(self):
         return DataLoader(self.test_dataset, batch_size=self.batch_size, num_workers=self.num_workers,
-                          persistent_workers=True)
+                          persistent_workers=True, collate_fn=HDF5Dataset.collate_fn)
