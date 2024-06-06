@@ -22,11 +22,16 @@ y_data = []
 # Iterate over DataLoader and store data
 for batch in tqdm(dl, desc='Exporting data'):
     x, y = batch
-    x_data.append(x.numpy())
     y_data.append(y.numpy())
 
+    x = x.numpy()
+    # Merge same-class channel data together
+    channels = np.concatenate([x[:, i:i+6, :].sum(1) for i in range(0, x.shape[1], 6)])
+    
+    x_data.append(channels)
+
 # Concatenate data
-x_data = np.concatenate(x_data, axis=0)
+x_data = np.stack(x_data, axis=0)
 y_data = np.concatenate(y_data, axis=0)
 
 import json
