@@ -33,8 +33,6 @@
             "console": "integratedTerminal",
             "justMyCode": false,
             "args": [
-                "--icdata",
-                "--suppress-empty-channels"
             ]
         },
         {
