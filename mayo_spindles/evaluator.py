@@ -205,8 +205,8 @@ class Evaluator:
     # classes = Partic_LT,Partic_RT,Partic_LH,Partic_RH,Partic_LC,Partic_RC,Partic_MID    
     CLASSES_INV = [
         "Partic_LT",
-        "Partic_RT",
         "Partic_LH",
+        "Partic_RT",
         "Partic_RH",
         "Partic_LC",
         "Partic_RC",
