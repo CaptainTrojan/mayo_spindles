@@ -87,6 +87,14 @@
                 "--data_dir", "data",
                 "--al_annotations_dir", "activelearning_annotations"
             ]
+        },
+        {
+            "name": "Compute dataset statistics",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/dataset_stats.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
         }
     ]
 }
