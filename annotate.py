@@ -4,7 +4,7 @@ import pandas as pd
 import torch
 
 import yaml
-from mayo_spindles.evaluator import Evaluator, IntervalAUCAP
+from mayo_spindles.evaluator import Evaluator
 from mayo_spindles.model_repo.collection import ModelRepository
 from mayo_spindles.dataloader import HDF5Dataset, SpindleDataModule, PreprocessingStaticFactory
 from mayo_spindles.lightningmodel import SpindleDetector
@@ -67,7 +67,7 @@ def predict_all(args):
     
     # Evaluator
     evaluator = Evaluator()
-    evaluator.add_metric("AUC", IntervalAUCAP)
+    # TODO evaluator.add_metric("?", ?)
     
     dm = SpindleDataModule('data', 30, batch_size=32, train_only=True,
                            preprocessing=PreprocessingStaticFactory.NORM_BANDPASS_10_16(),
@@ -158,7 +158,6 @@ if __name__ == "__main__":
         "--num_workers", type=int, default=4, help="Number of workers for the data loader"
     )
     parser.add_argument('--model', type=str, required=True, help='name of the model to train')
-    parser.add_argument('--metric', type=str, default='val_AUC_avg', choices=['val_AUC_avg', 'val_AP_avg', 'val_loss'], help='Metric which will be used to select the best model (default: val_AUC_avg)')
     parser.add_argument('--avg_window_size', type=int, default=0, help='window size for averaging the logits (default: 0 - no window)')
     parser.add_argument('--filter_bandwidth', type=str2bool, default=False, help='whether to bandfilter the data (default: False)')
     parser.add_argument('--model_config', type=str, default=None, help='path to the model config file (default: None)')
@@ -171,7 +170,6 @@ if __name__ == "__main__":
         model_config = {}
         
     wandb_logger = FakeWandbLogger()
-    mode = 'min' if "loss" in args.metric else 'max'
     detector_config = {
         'window_size': args.avg_window_size,
     }
