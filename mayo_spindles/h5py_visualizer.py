@@ -8,7 +8,7 @@ from evaluator import Evaluator
 class H5Visualizer:
     def __init__(self) -> None:
         self.evaluator = Evaluator()
-        self.evaluator.add_metric('aucpr', Evaluator.INTERVAL_AUC_AP)
+        # self.evaluator.add_metric('aucpr', Evaluator.INTERVAL_AUC_AP)
         
     def generate_prediction_plot(self, x, y_true, y_pred):
         # x shape = (num_channels, num_samples), eg. (24, 7500)
