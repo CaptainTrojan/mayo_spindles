@@ -744,6 +744,16 @@ class SpindleDataModule(LightningDataModule):
     
 
 class HDF5Dataset(Dataset):
+    """
+    Yields tuples X, y, where
+    X: 
+        'raw_signal': [1, seq_len] - raw EEG signal coming from one of the intracranial leads
+        'spectrogram': [30, seq_len] - scalogram of the raw signal
+    Y: 
+        'segmentation': [seq_len, 1] - binary spindle segmentation map, 0 for non-spindle, 1 for spindle
+        'detections': [29, 3] - spindle detections, where each row is [spindle existence, center offset, spindle duration (real)]
+        'class': [] - class label for the spindles corresponding to the channel from which the raw signal was taken
+    """
     def __init__(self, data_dir, split, augmentations_size=0):
         super().__init__()
         self.file_path = os.path.join(data_dir, 'data.hdf5')
@@ -774,6 +784,7 @@ class HDF5Dataset(Dataset):
         if self.augmentations:
             x, y = self.__augmented_select(index)
         else:
+            index = self.indices[index]
             x, y = self.__load_one_xy_pair(index)
 
         return x, y
@@ -783,7 +794,7 @@ class HDF5Dataset(Dataset):
         np.random.seed(index)
         
         # Randomly select 1-3 indices
-        indices = np.random.choice(self.len, np.random.randint(1, 4))
+        indices = np.random.choice(self.indices, np.random.randint(1, 4))
         
         X = []
         Y = []
@@ -844,6 +855,44 @@ class HDF5Dataset(Dataset):
         coeffs, frequencies = pywt.cwt(data, np.arange(1, 31), 'morl', sampling_period=1/250)
         return np.abs(coeffs)
     
+    def __segmentation_to_detections(self, y: np.ndarray) -> np.ndarray:
+        # Input [seq_len, 1], contains 0s and 1s representing the ground truth spindles
+        # Output [29, 3], where 3 is 1) spindle existence (0/1), 2) center offset w.r.t. interval center (0-1), 3) spindle duration (0-1)
+        seq_len = y.shape[0]
+        num_segments = 29
+        segment_length = seq_len / num_segments
+        
+        # Initialize the output array
+        detections = np.zeros((num_segments, 3), dtype=np.float32)
+        
+        # Find the start and end of each spindle
+        starts = np.where(np.diff(y[:,0]) == 1)[0]
+        ends = np.where(np.diff(y[:, 0]) == -1)[0]
+        
+        if y[0, 0] == 1:
+            starts = np.concatenate([[0], starts])
+        if y[-1, 0] == 1:
+            ends = np.concatenate([ends, [seq_len - 1]])
+            
+        assert len(starts) == len(ends), f"Number of starts and ends do not match. Starts: {len(starts)}, Ends: {len(ends)}"
+    
+        # Iterate over each spindle
+        for start, end in zip(starts, ends):
+            center = (start + end) // 2
+            segment_id = int(center / segment_length)
+            
+            # Mark spindle
+            detections[segment_id, 0] = 1
+            # Calculate center offset
+            offset = (center % segment_length) / segment_length
+            detections[segment_id, 1] = offset
+            # Calculate duration
+            true_duration = end - start
+            detections[segment_id, 2] = Evaluator.true_duration_to_sigmoid(true_duration)
+        
+        return detections
+            
+    
     def __load_one_xy_pair(self, index):
         x = self.__load_one_element('x', index)
         y = self.__load_one_element('y', index)
@@ -857,10 +906,13 @@ class HDF5Dataset(Dataset):
         y = np.expand_dims(y, axis=0)
         y_class = np.expand_dims(y_class, axis=0)
         
-        # Transpose y to [b, seq_len, 1] from [b, 1, seq_len]
-        y = np.transpose(y, (0, 2, 1))
+        # Transpose y to [seq_len, 1] from [1, seq_len]
+        y_seg = np.transpose(y, (1, 0))
         
-        ret = {'raw_signal': x, 'spectrogram': specgram}, {'segmap': y, 'class': y_class}
+        # Convert segmentation to detections
+        y_det = self.__segmentation_to_detections(y_seg)
+        
+        ret = {'raw_signal': x, 'spectrogram': specgram}, {'segmentation': y_seg, 'detections': y_det, 'class': y_class}
         
         # Convert to torch tensors
         ret = {k: torch.from_numpy(v) for k, v in ret[0].items()}, {k: torch.from_numpy(v) for k, v in ret[1].items()}
