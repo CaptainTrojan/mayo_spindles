@@ -50,7 +50,7 @@ def main():
     sf = datamodule.dataset._common_sampling_rate
     
     evaluator = Evaluator()
-    evaluator.add_metric('f1', Evaluator.INTERVAL_F_MEASURE)
+    evaluator.add_metric('f1', Evaluator.DETECTION_F_MEASURE)
     # evaluator.add_metric('hit_rate', Evaluator.interval_hit_rate)
     
     # res = evaluate_yasa(datamodule, sf, evaluator, 0.1, 0.5, 1.3)
