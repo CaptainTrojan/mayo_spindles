@@ -136,8 +136,8 @@ class SpindleDetector(pl.LightningModule):
         
         # Define the evaluator
         self.evaluator = Evaluator()
-        self.evaluator.add_metric('f1', Evaluator.INTERVAL_F_MEASURE)
-        self.evaluator.add_metric('aucpr', Evaluator.INTERVAL_AUC_AP)
+        self.evaluator.add_metric('det_f1', Evaluator.DETECTION_F_MEASURE)
+        self.evaluator.add_metric('seg_iou', Evaluator.SEGMENTATION_JACCARD_INDEX)
         
         self.metric = metric
         self.mode = mode
@@ -218,8 +218,8 @@ class SpindleDetector(pl.LightningModule):
     
     def log_metric_results(self, name, results):
         df_name_map = {
-            'f1': ('f-measure',),
-            'aucpr': ('AUC', 'AP'),
+            'det_f1': ('detection f-measure',),
+            'seg_iou': ('segmentation jaccard index',),
         }
         
         results = results[name]
@@ -258,8 +258,8 @@ class SpindleDetector(pl.LightningModule):
         
         results: dict[str, list[pd.DataFrame]] = self.evaluator.results()
         
-        self.log_metric_results('f1', results)
-        self.log_metric_results('aucpr', results)
+        self.log_metric_results('det_f1', results)
+        self.log_metric_results('seg_iou', results)
         
         if self.report_full_stats:            
             print("Logging predictions to wandb...")
