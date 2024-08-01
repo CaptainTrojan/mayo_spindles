@@ -5,6 +5,7 @@ from scipy import stats
 import torch
 np.seterr(divide='ignore', invalid='ignore')
 from sklearn.metrics import average_precision_score, roc_auc_score
+from collections import defaultdict
 
 
 # def interval_hit_rate(y_true: np.ndarray, y_pred: np.ndarray):
@@ -70,49 +71,92 @@ class Metric:
 
 
 class DetectionFMeasure(Metric):        
-    def __call__(self, y_true, y_pred):
-        # y_true contains key 'segmap' with shape [B, seq_len, 1]
+    def __call__(self, b_y_true, b_y_pred):
+        # y_true contains key 'detections' with shape [B, 29, 3]
         # y_pred contains key 'detections' with shape [B, 29, 3]
         
-        # true positives are the number of 1s in the intersection of y_true and y_pred
-        tp = np.sum(np.logical_and(y_true, y_pred), axis=2).sum(axis=0)
-        tp_plus_fp = np.sum(y_pred, axis=2).sum(axis=0)
-        tp_plus_fn = np.sum(y_true, axis=2).sum(axis=0)
+        b_y_pred = Evaluator.dict_struct_from_torch_to_npy(b_y_pred)
+        b_y_true = Evaluator.dict_struct_from_torch_to_npy(b_y_true)
+        
+        # First, convert detections to intervals
+        seq_len = b_y_true['segmentation'].shape[-2]
 
-        self._tp.append(tp)
-        self._tp_plus_fp.append(tp_plus_fp)
-        self._tp_plus_fn.append(tp_plus_fn)
+        for y_true, y_pred in zip(b_y_true['detections'], b_y_pred['detections']):
+            y_true = Evaluator.detections_to_intervals(y_true, seq_len)
+            y_pred = Evaluator.detections_to_intervals(y_pred, seq_len)
+            
+            iou_threshold = 0.3
+        
+            # Apply NMS 
+            y_pred = Evaluator.intervals_nms(y_pred, iou_threshold=iou_threshold)
+            
+            # Find matching between intervals. If two intervals overlap by more than iou_threshold, they are considered a match (true positive).
+            # All remaining predictions are false positives, and all remaining ground truth are false negatives.
+            
+            num_tp = 0
+            
+            for predicted_spindle in y_pred:
+                for true_spindle in y_true:
+                    start_max = max(predicted_spindle[0], true_spindle[0])
+                    end_min = min(predicted_spindle[1], true_spindle[1])
+                    intersection = max(0, end_min - start_max)
+                    union = (predicted_spindle[1] - predicted_spindle[0]) + (true_spindle[1] - true_spindle[0]) - intersection
+                    iou = intersection / union
+                    if iou > iou_threshold:
+                        num_tp += 1
+                        break
+            
+            num_fp = len(y_pred) - num_tp
+            num_fn = len(y_true) - num_tp
+            
+            _cls = Evaluator.CLASSES_INV[y_true['class']]
+            self._tp[_cls].append(num_tp)
+            self._tp_plus_fp[_cls].append(num_tp + num_fp)
+            self._tp_plus_fn[_cls].append(num_tp + num_fn)
     
     def results(self):
-        precision = np.sum(self._tp, axis=0) / np.sum(self._tp_plus_fp, axis=0)
-        recall = np.sum(self._tp, axis=0) / np.sum(self._tp_plus_fn, axis=0)
-        f_measure = np.where(np.isnan(precision) | np.isnan(recall), np.nan, 2 * np.sum(self._tp, axis=0) / (np.sum(self._tp_plus_fp, axis=0) + np.sum(self._tp_plus_fn, axis=0)))
-
+        # Sum true positives, false positives, and false negatives across all classes
+        tp_sum = np.sum([np.sum(tp_list) for tp_list in self._tp.values()])
+        tp_plus_fp_sum = np.sum([np.sum(tp_plus_fp_list) for tp_plus_fp_list in self._tp_plus_fp.values()])
+        tp_plus_fn_sum = np.sum([np.sum(tp_plus_fn_list) for tp_plus_fn_list in self._tp_plus_fn.values()])
+    
+        # Calculate precision, recall, and f-measure for each class
+        precision = {cls: np.sum(self._tp[cls]) / np.sum(self._tp_plus_fp[cls]) for cls in self._tp}
+        recall = {cls: np.sum(self._tp[cls]) / np.sum(self._tp_plus_fn[cls]) for cls in self._tp}
+        f_measure = {cls: np.where(np.isnan(precision[cls]) | np.isnan(recall[cls]), np.nan, 
+                                   2 * np.sum(self._tp[cls]) / (np.sum(self._tp_plus_fp[cls]) + np.sum(self._tp_plus_fn[cls])))
+                     for cls in self._tp}
+    
+        # Create raw DataFrame
         raw = pd.DataFrame({
             'precision': precision,
             'recall': recall,
             'f-measure': f_measure
         }, index=Evaluator.CLASSES_INV)
-        
+    
+        # Calculate macro-average
         macro_average = pd.DataFrame({
-            'precision': np.mean(raw['precision']),
-            'recall': np.mean(raw['recall']),
-            'f-measure': np.mean(raw['f-measure'])
+            'precision': np.mean(list(precision.values())),
+            'recall': np.mean(list(recall.values())),
+            'f-measure': np.mean(list(f_measure.values()))
         }, index=['macro-average'])
-        
+    
+        # Calculate micro-average
         micro_average = pd.DataFrame({
-            'precision': np.sum(self._tp) / np.sum(self._tp_plus_fp),
-            'recall': np.sum(self._tp) / np.sum(self._tp_plus_fn),
-            'f-measure': 2 * np.sum(self._tp) / (np.sum(self._tp_plus_fp) + np.sum(self._tp_plus_fn))
+            'precision': tp_sum / tp_plus_fp_sum,
+            'recall': tp_sum / tp_plus_fn_sum,
+            'f-measure': 2 * tp_sum / (tp_plus_fp_sum + tp_plus_fn_sum)
         }, index=['micro-average'])
-        
+    
+        # Concatenate micro and macro averages
         micro_macro_average = pd.concat([micro_average, macro_average])
+    
         return [raw, micro_macro_average]
     
     def reset(self):
-        self._tp = []
-        self._tp_plus_fp = []
-        self._tp_plus_fn = []
+        self._tp = defaultdict(list)
+        self._tp_plus_fp = defaultdict(list)
+        self._tp_plus_fn = defaultdict(list)
         
     def __str__(self):
         return f"{self.name} ({len(self._tp)} batches)"
@@ -121,11 +165,62 @@ class DetectionFMeasure(Metric):
         return len(self._tp)
         
 
+class SegmentationJaccardIndex(Metric):
+    def __call__(self, y_true, y_pred):
+        # y_true contains key 'segmentation' with shape [B, seq_len, 1]
+        # y_pred contains key 'segmentation' with shape [B, seq_len, 1]
+        
+        y_pred = Evaluator.dict_struct_from_torch_to_npy(y_pred)
+        y_true = Evaluator.dict_struct_from_torch_to_npy(y_true)
+        
+        intersection = np.logical_and(y_true['segmentation'], y_pred['segmentation']).sum()
+        union = np.logical_or(y_true['segmentation'], y_pred['segmentation']).sum()
+
+        _cls = Evaluator.CLASSES_INV[y_true['class']]
+        self._intersection[_cls] += intersection
+        self._union[_cls] += union
+        
+    def results(self):
+        # Calculate Jaccard index for each class
+        jaccard_index = {cls: self._intersection[cls] / self._union[cls] if self._union[cls] != 0 else np.nan
+                         for cls in self._intersection}
+
+        # Create raw DataFrame
+        raw = pd.DataFrame({
+            'jaccard_index': jaccard_index
+        }, index=Evaluator.CLASSES_INV)
+
+        # Calculate macro-average
+        macro_average = pd.DataFrame({
+            'jaccard_index': np.nanmean(list(jaccard_index.values()))
+        }, index=['macro-average'])
+
+        # Calculate micro-average
+        total_intersection = np.sum(list(self._intersection.values()))
+        total_union = np.sum(list(self._union.values()))
+        micro_average = pd.DataFrame({
+            'jaccard_index': total_intersection / total_union if total_union != 0 else np.nan
+        }, index=['micro-average'])
+
+        # Concatenate micro and macro averages
+        micro_macro_average = pd.concat([micro_average, macro_average])
+
+        return [raw, micro_macro_average]
+    
+    def reset(self):
+        self._intersection = defaultdict(lambda: 0)
+        self._union = defaultdict(lambda: 0)
+        
+    def __str__(self):
+        return f"{self.name} ({len(self._tp)} batches)"
+    
+    def __len__(self):
+        return len(self._tp)
 
 @finalizing
 class Evaluator:
-    INTERVAL_F_MEASURE = DetectionFMeasure
-    INTERVAL_AUC_AP = IntervalAUCAP
+    DETECTION_F_MEASURE = DetectionFMeasure
+    SEGMENTATION_JACCARD_INDEX = SegmentationJaccardIndex
     
     POSSIBLE_INTRACRANIAL_CHANNELS = [
         'e0-e1', 'e0-e2', 'e0-e3', 'e1-e2', 'e1-e3', 'e2-e3',  # LT
@@ -179,48 +274,89 @@ class Evaluator:
         
     # NEW METHODS
     
+    @staticmethod
+    def dict_struct_from_torch_to_npy(y: dict):
+        for key in y:
+            y[key] = y[key].detach().cpu().numpy()
+        return y
     
+    @staticmethod
+    def true_duration_to_sigmoid(y: np.ndarray, fsamp=250) -> np.ndarray:
+        # Input: [N]
+        # Output: [N]
+        # Converts true duration to sigmoided variant
+        # We expect true duration to be between 0 seconds and 2 seconds, which corresponds to 0 and 1 in the sigmoided variant
+        
+        base = y / (2 * fsamp)
+        # Clip to [0, 1] just in case
+        return np.clip(base, 0, 1)
     
-    @staticmethod 
-    def segmap_to_detections(y: np.ndarray) -> np.ndarray:
-        # Input [B, seq_len, 1], contains 0s and 1s representing the ground truth spindles
-        # Output [B, 29, 3], where 3 is 1) spindle existence (0/1), 2) center offset w.r.t. interval center (0-1), 3) spindle duration (0-1)
-        batch_size = y.shape[0]
-        seq_len = y.shape[1]
-        num_segments = 29
-        segment_length = seq_len / num_segments
+    @staticmethod
+    def sigmoid_to_true_duration(y: np.ndarray, fsamp=250) -> np.ndarray:
+        # Input: [N]
+        # Output: [N]
+        # Converts sigmoided variant to true duration
+        # We expect sigmoided variant to be between 0 and 1, which corresponds to 0 seconds and 2 seconds in the true duration
         
-        # Initialize the output array
-        detections = np.zeros((batch_size, num_segments, 3), dtype=np.float32)
+        return y * 2 * fsamp
+    
+    @staticmethod
+    def detections_to_intervals(detections: np.ndarray, seq_len: int, confidence_threshold=1e-6) -> np.ndarray:
+        # Input: [29, 3], 29 for each interval, 3 = confidence, center offset, sigmoided duration
+        # Output: [29, 3], 29 as maximum number of spindles, 3 = start, end, confidence
         
-        # Iterate over each batch
-        for batch_id in range(batch_size):
-            # Find the start and end of each spindle
-            starts = np.where(np.diff(y) == 1)[0]
-            ends = np.where(np.diff(y) == -1)[0]
+        # Convert sigmoided duration to true duration
+        output = np.zeros_like(detections)
+        
+        num_segments = detections.shape[0]
+        segment_duration = seq_len / num_segments
+        j = 0
+        for i in range(num_segments):
+            confidence, center_offset, sigmoided_duration = detections[i]
+            if confidence < confidence_threshold:
+                continue
             
-            if y[0] == 1:
-                starts = np.concatenate([[0], starts])
-            if y[-1] == 1:
-                ends = np.concatenate([ends, [len(y) - 1]])
-                
-            assert len(starts) == len(ends), f"Number of starts and ends do not match. Starts: {len(starts)}, Ends: {len(ends)}"
+            true_center = (i + center_offset) * segment_duration
+            true_duration = Evaluator.sigmoid_to_true_duration(sigmoided_duration)
+            start = true_center - true_duration / 2
+            end = true_center + true_duration / 2
+            
+            output[j] = [start, end, confidence]
+            j += 1
         
-            # Iterate over each spindle
-            for start, end in zip(starts, ends):
-                center = (start + end) // 2
-                segment_id = int(center / segment_length)
-                
-                # Mark spindle
-                detections[batch_id, segment_id, 0] = 1
-                # Calculate center offset
-                offset = (center % segment_length) / segment_length
-                detections[batch_id, segment_id, 1] = offset
-                # Calculate duration
-                true_duration = end - start
-        
+        return output
     
-    # OLD METHODS
+    @staticmethod
+    def intervals_nms(intervals: np.ndarray, iou_threshold=0.3) -> np.ndarray:
+        """
+        Perform non-maximum suppression on intervals.
+        Input: [N, 3], 3 = start, end, confidence
+        Output: [M, 3], 3 = start, end, confidence
+        """
+        if len(intervals) == 0:
+            return np.array([])
+
+        # Sort intervals by confidence score in descending order
+        intervals = intervals[intervals[:, 2].argsort()[::-1]]
+
+        selected_intervals = []
+
+        while len(intervals) > 0:
+            # Select the interval with the highest confidence
+            current_interval = intervals[0]
+            selected_intervals.append(current_interval)
+
+            # Compute IoU (Intersection over Union) between the selected interval and the rest
+            start_max = np.maximum(current_interval[0], intervals[1:, 0])
+            end_min = np.minimum(current_interval[1], intervals[1:, 1])
+            intersection = np.maximum(0, end_min - start_max)
+            union = (current_interval[1] - current_interval[0]) + (intervals[1:, 1] - intervals[1:, 0]) - intersection
+            iou = intersection / union
+
+            # Keep intervals with IoU less than the threshold
+            intervals = intervals[1:][iou < iou_threshold]
+
+        return np.array(selected_intervals)
     
     @staticmethod
     def is_array_empty(y: np.ndarray):
