@@ -32,7 +32,7 @@ if __name__ == '__main__':
     # Optional arguments
     parser.add_argument('--checkpoint_path', type=str, default='checkpoints', help='path to the checkpoints (default: checkpoints)')
     parser.add_argument('--model_config', type=str, default=None, help='path to the model config file (default: None)')
-    parser.add_argument('--share_bottleneck', type=str2bool, default=True, help='whether to share the bottleneck in detect/segmap heads (default: True)')
+    parser.add_argument('--share_bottleneck', type=str2bool, default=True, help='whether to share the bottleneck in detect/segmentation heads (default: True)')
     parser.add_argument('--epochs', type=int, default=1, help='number of epochs to train (default: 1)')
     parser.add_argument('--project_name', type=str, default='mayo_spindles_single_channel', help='name of the project (default: mayo_spindles_single_channel)')
     parser.add_argument('--num_workers', type=int, default=10, help='number of workers for the data loader (default: 10)')
