@@ -3,10 +3,10 @@ import pytorch_lightning as pl
 import torch
 import wandb
 
-from mayo_spindles.h5py_visualizer import H5Visualizer
-from .evaluator import Evaluator
+from h5py_visualizer import H5Visualizer
+from evaluator import Evaluator
 
-from .model_repo.collection import ModelRepository
+from model_repo.collection import ModelRepository
 
 class WindowAveraging(torch.nn.Module):
     def __init__(self, window_size):
@@ -18,9 +18,109 @@ class WindowAveraging(torch.nn.Module):
         x = torch.nn.functional.avg_pool1d(x, self.window_size, stride=1, padding=self.window_size // 2)
         x = x.transpose(1, 2)
         return x
+    
+class Downscale1D(torch.nn.Module):
+    def __init__(self, in_channels, out_channels, factor=2):
+        super().__init__()
+        self.factor = factor
+        self.batchnorm = torch.nn.BatchNorm1d(in_channels)
+        self.conv = torch.nn.Conv1d(in_channels, out_channels, kernel_size=factor, stride=factor, padding=0, bias=False)
+        self.act = torch.nn.GELU()
 
+    def forward(self, x):
+        x = self.batchnorm(x)
+        x = self.conv(x)
+        x = self.act(x)
+        return x
+    
+class Upscale1D(torch.nn.Module):
+    def __init__(self, in_channels, out_channels, factor=2):
+        super().__init__()
+        self.factor = factor
+        self.batchnorm = torch.nn.BatchNorm1d(in_channels)
+        self.conv = torch.nn.ConvTranspose1d(in_channels, out_channels, kernel_size=factor, stride=factor, padding=0, bias=False)
+        self.act = torch.nn.GELU()
+        
+    def forward(self, x):
+        x = self.batchnorm(x)
+        x = self.conv(x)
+        x = self.act(x)
+        return x
+
+    
+class EfficientIntervalHead(torch.nn.Module):
+    """
+    This class defines the head of the model that will be used for interval detection.
+    This head actually implements two heads, one for interval detection and the other for segmentation.
+    The key is that they can share the same bottleneck layers.
+    
+    Input: [batch, seq_len, num_channels]
+    Output: {'intervals': [batch, 2] (start, end), 'segmentation': [batch, seq_len]}
+    """
+
+    def __init__(self, num_layers, share_bottleneck=True):
+        super().__init__()
+        self.share_bottleneck = share_bottleneck
+        self.num_layers = num_layers
+        
+        channels = [64, 64, 128, 128, 128, 128, 256, 256]
+        assert num_layers < len(channels)
+        
+        if self.share_bottleneck:
+            self.bottleneck = torch.nn.Sequential(
+                *[Downscale1D(channels[i], channels[i + 1]) for i in range(num_layers - 1)]
+            )
+        else:
+            self.bottleneck_detection = torch.nn.Sequential(
+                *[Downscale1D(channels[i], channels[i + 1]) for i in range(num_layers - 1)]
+            )
+            
+            self.bottleneck_segmentation = torch.nn.Sequential(
+                *[Downscale1D(channels[i], channels[i + 1]) for i in range(num_layers - 1)]
+            )
+        
+        # Detection head - for each block, predict:
+        # - whether it contains a spindle
+        # - where is the spindle center
+        # - what is the spindle duration
+        self.detection_neck = torch.nn.Sequential(
+            *[Downscale1D(channels[num_layers-1], channels[num_layers-1]) for _ in range(2)],
+        )
+        self.detection_head = torch.nn.Sequential(
+            torch.nn.Linear(channels[num_layers-1], 3),
+            torch.nn.Sigmoid()
+        )
+        
+        # Segmentation head - upscale blocks back and predict the segmentation
+        self.segmentation_neck = torch.nn.Sequential(
+            *[Upscale1D(channels[i+1], channels[i]) for i in range(num_layers - 2, -1, -1)],
+        )
+        self.segmentation_head = torch.nn.Sequential(
+            torch.nn.Linear(channels[0], 1),
+        )
+        
+    def forward(self, x):
+        if self.share_bottleneck:
+            bottleneck = self.bottleneck(x)
+            detection = self.detection_head(self.detection_neck(bottleneck).transpose(1, 2))
+            segmentation = self.segmentation_head(self.segmentation_neck(bottleneck).transpose(1, 2))
+        else:
+            bottleneck_detection = self.bottleneck_detection(x)
+            bottleneck_segmentation = self.bottleneck_segmentation(x)
+            
+            detection = self.detection_head(self.detection_neck(bottleneck_detection).transpose(1, 2))
+            segmentation = self.segmentation_head(self.segmentation_neck(bottleneck_segmentation).transpose(1, 2))
+            
+        # Pad lost timesteps to segmentation with zeros
+        if segmentation.shape[1] < x.shape[2]:
+            pad = torch.zeros(x.shape[0], x.shape[2] - segmentation.shape[1], 1, device=segmentation.device)
+            segmentation = torch.cat([segmentation, pad], dim=1)
+        
+        return {'detection': detection, 'segmentation': segmentation}
+        
+        
 class SpindleDetector(pl.LightningModule):   
-    def __init__(self, model_name, model_config, detector_config, wandb_logger, metric, mode):
+    def __init__(self, model_name, model_config, detector_config, metric, mode):
         super().__init__()
         
         self.model_name = model_name
@@ -29,15 +129,7 @@ class SpindleDetector(pl.LightningModule):
         # Load the model from the model repository
         repo = ModelRepository()
         self.model = repo.load(model_name, model_config)
-        
-        postprocessors = [
-            torch.nn.Sigmoid()
-        ]
-        
-        if detector_config['window_size'] > 0:
-            postprocessors.insert(0, WindowAveraging(detector_config['window_size']))
-        
-        self.postprocess = torch.nn.Sequential(*postprocessors)
+        self.head = EfficientIntervalHead(num_layers=7, share_bottleneck=detector_config['share_bottleneck'])
         
         # Define the loss function
         self.loss = torch.nn.BCELoss()
@@ -53,10 +145,6 @@ class SpindleDetector(pl.LightningModule):
         # Define the learning rate (this is a hyperparameter that can be tuned)
         self.lr = 1e-3
         
-        # Add the wandb logger
-        self.wandb_logger = wandb_logger
-        self.wandb_logger.watch(self.model, log_freq=1)
-        
         self.val_loss_sum = 0.0
         self.val_steps = 0
         
@@ -65,12 +153,19 @@ class SpindleDetector(pl.LightningModule):
         self.visualizer = H5Visualizer()
         
         self.report_full_stats = False
+        self.wandb_logger = None
+        
+    def set_wandb_logger(self, wandb_logger):
+        # Add the wandb logger
+        self.wandb_logger = wandb_logger
+        self.wandb_logger.watch(self.model, log_freq=1)
         
     def __deepcopy__(self, memo):    
         # Create a new instance of this class with the same arguments
         new_instance = SpindleDetector(self.model_name, self.model_config,
-                                       self.detector_config, self.wandb_logger,
+                                       self.detector_config,
                                        self.metric, self.mode)
+        new_instance.set_wandb_logger(self.wandb_logger)
         
         # Copy learning rate
         new_instance.lr = self.lr
@@ -81,11 +176,14 @@ class SpindleDetector(pl.LightningModule):
         
         return new_instance
 
-    def forward(self, x):
-        x = x.transpose(1, 2)
-        y_hat = self.model(x)
-        y_hat = self.postprocess(y_hat)
-        y_hat = y_hat.transpose(1, 2)
+    def forward(self, x: dict[str, torch.Tensor]):
+        # First, join raw_signal and spectrogram into a single tensor
+        joint = torch.cat([x['raw_signal'], x['spectrogram']], dim=1)
+        
+        joint = joint.transpose(1, 2)
+        features = self.model(joint)
+        features = features.transpose(1, 2)
+        y_hat = self.head(features)
         return y_hat
     
     def calculate_loss(self, x, y, do_eval=False, return_y_hat=False):

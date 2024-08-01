@@ -15,6 +15,7 @@ from pytorch_lightning import LightningDataModule
 import warnings
 import h5py
 from evaluator import Evaluator
+import pywt
 
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="pymef.mef_session", lineno=1391)
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="pymef.mef_session", lineno=1401)
@@ -707,7 +708,7 @@ class SpindleDataModule(LightningDataModule):
         self.dataset = SpindleDataset(only_intracranial_data=intracranial_only,
                                       preprocessing=preprocessing, spindle_data_radius=spindle_data_radius)
         for file in os.listdir(data_dir):
-            if file.endswith('.csv'):
+            if file.endswith('AL.csv'):
                 self.dataset.register_main_csv(os.path.join(data_dir, file))
             elif file.endswith('.mefd'):
                 self.dataset.register_mefd_reader(os.path.join(data_dir, file))
@@ -742,54 +743,6 @@ class SpindleDataModule(LightningDataModule):
         return DataLoader(self.test_set, collate_fn=self.collate_fn, num_workers=self.num_workers, batch_size=self.batch_size)
     
 
-import numpy as np
-import librosa
-import pywt
-
-def spectrogram_from_eeg(x):    
-    # VARIABLE TO HOLD SPECTROGRAM
-    x = denoise(x)
-
-    # RAW SPECTROGRAM
-    win_length = 512
-    hop_length = len(x) // 512
-    mel_spec = librosa.feature.melspectrogram(y=x,
-                                              sr=250,
-                                              hop_length=hop_length,
-                                              n_mels=128,
-                                              fmin=8,
-                                              fmax=18,
-                                              win_length=win_length,
-                                              center=True)
-
-    # LOG TRANSFORM
-    width = (mel_spec.shape[1]//32)*32
-    mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max).astype(np.float32)[:,:width]
-
-    # STANDARDIZE TO -1 TO 1
-    mel_spec_db = (mel_spec_db+40)/40
-    
-    # Pad the image to make it aligned with the signal
-    # pad_size = win_length // 4
-    # mel_spec_db = np.pad(mel_spec_db, ((0, 0), (0, pad_size)), 'constant', constant_values=0)
-    
-    return mel_spec_db
-    
-# DENOISE FUNCTION
-def maddest(d, axis=None):
-    return np.mean(np.absolute(d - np.mean(d, axis)), axis)
-
-def denoise(x, wavelet='haar', level=1):    
-    coeff = pywt.wavedec(x, wavelet, mode="per")
-    sigma = (1/0.6745) * maddest(coeff[-level])
-
-    uthresh = sigma * np.sqrt(2*np.log(len(x)))
-    coeff[1:] = (pywt.threshold(i, value=uthresh, mode='hard') for i in coeff[1:])
-
-    ret=pywt.waverec(coeff, wavelet, mode='per')
-    
-    return ret
-
 class HDF5Dataset(Dataset):
     def __init__(self, data_dir, split, augmentations_size=0):
         super().__init__()
@@ -808,12 +761,11 @@ class HDF5Dataset(Dataset):
         self.len = len(self.indices)
 
         with h5py.File(self.file_path, 'r') as hf:
-            self.num_channels = hf['x'].shape[1]
-            self.num_classes = hf['y'].shape[1]
-            self.seq_len = hf['x'].shape[2]
+            self.seq_len = hf['x'].shape[1]
+            assert hf['y'].shape[1] == self.seq_len, f"Expected {hf['y'].shape[1]} to be {self.seq_len}"
 
     def __len__(self):
-        return self.len * 4 if not self.augmentations else self.augmentations_size * 4
+        return self.len if not self.augmentations else self.augmentations_size
 
     def __getitem__(self, index):
         if self.file is None:
@@ -821,14 +773,8 @@ class HDF5Dataset(Dataset):
             
         if self.augmentations:
             x, y = self.__augmented_select(index)
-            
         else:
-            datum_index = index // 4
-            datum_index = self.indices[datum_index]
-            offset = index % 4
-            target_index = datum_index * 4 + offset
-            
-            x, y = self.__load_one_xy_pair(target_index)
+            x, y = self.__load_one_xy_pair(index)
 
         return x, y
     
@@ -836,11 +782,8 @@ class HDF5Dataset(Dataset):
         # Seed by index so that the same indices are always selected
         np.random.seed(index)
         
-        # Randomly select 2-3 indices
-        bases = np.random.choice(self.len, np.random.randint(2, 4))
-        offsets = np.random.randint(0, 4, len(bases))
-        base_indices = [self.indices[base] for base in bases]
-        indices = [base * 4 + offset for base, offset in zip(base_indices, offsets)]    
+        # Randomly select 1-3 indices
+        indices = np.random.choice(self.len, np.random.randint(1, 4))
         
         X = []
         Y = []
@@ -857,54 +800,65 @@ class HDF5Dataset(Dataset):
         cutoffs.sort()
         cutoffs.insert(0, 0)
         cutoffs.append(self.seq_len)
-        X_parts = []
-        Y_parts = []
+        
+        X_keys = X[0].keys()
+        Y_keys = Y[0].keys() - {'class'}
+        X_parts = {k: [] for k in X_keys}
+        Y_parts = {k: [] for k in Y_keys}
+        Y_class = -1  # Because augmentation merges multiple classes
         
         for x_full, y_full, start, end in zip(X, Y, cutoffs[:-1], cutoffs[1:]):
             # Roll the data randomly first
             roll_amount = np.random.randint(0, self.seq_len)
-            x_full = torch.roll(x_full, roll_amount, dims=1)
-            y_full = torch.roll(y_full, roll_amount, dims=1)
             
-            X_parts.append(x_full[:, start:end])
-            Y_parts.append(y_full[:, start:end])
+            # Roll x (dictionary of tensors)
+            for key in X_keys:
+                rolled = torch.roll(x_full[key], roll_amount, dims=1)
+                X_parts[key].append(rolled[:, start:end])
+                
+            # Roll y (dictionary of tensors)
+            for key in Y_keys:
+                rolled = torch.roll(y_full[key], roll_amount, dims=1)
+                Y_parts[key].append(rolled[:, start:end])
         
-        x = torch.cat(X_parts, dim=1)
-        y = torch.cat(Y_parts, dim=1)
+        # Concatenate parts
+        x = {k: torch.cat(v, dim=1) for k, v in X_parts.items()}
+        y = {k: torch.cat(v, dim=1) for k, v in Y_parts.items()}
         
-        assert x.shape[1] == self.seq_len, f"Expected {x.shape[1]} to be {self.seq_len}"
-        assert y.shape[1] == self.seq_len, f"Expected {y.shape[1]} to be {self.seq_len}"
+        for key in x.keys():
+            assert x[key].shape[1] == self.seq_len, f"Expected {x[key].shape[1]} to be {self.seq_len}"
+        for key in y.keys():
+            assert y[key].shape[1] == self.seq_len, f"Expected {y[key].shape[1]} to be {self.seq_len}"
+            
+        y['class'] = torch.tensor([Y_class])
 
         return x, y
     
     def __normalize(self, data: np.ndarray):
-        normed = (data - np.mean(data, axis=1).reshape(-1, 1)) / np.std(data, axis=1).reshape(-1, 1)
+        normed = (data - np.mean(data)) / np.std(data)
         return np.nan_to_num(normed, nan=0.0)
     
-    def __convert_to_spectrogram(self, data: np.ndarray):
+    def __convert_to_scalogram(self, data: np.ndarray):
         # Data shape = (num_channels, seq_len), which should be (4, 7500)
-        fsamp = 250
-        window = 'hann'
-        nperseg = 64
-        noverlap = 32
-        f, t, Zxx = signal.stft(data, fs=fsamp, window=window, nperseg=nperseg, noverlap=noverlap)
-        Sxx = np.abs(Zxx) ** 2
-        Sxx = np.log1p(Sxx)
-        return Sxx.astype(np.float32)
-
+        # Fsamp = 250 Hz
+        coeffs, frequencies = pywt.cwt(data, np.arange(1, 31), 'morl', sampling_period=1/250)
+        return np.abs(coeffs)
     
     def __load_one_xy_pair(self, index):
-        x = self.__load_one_element('x', index // 4)
-        y = self.__load_one_element('y', index // 4)
+        x = self.__load_one_element('x', index)
+        y = self.__load_one_element('y', index)
+        y_class = self.__load_one_element('y_class', index)
         
-        # Select only the channel corresponding to index
-        selected_channel = index % 4
-        x = x[selected_channel]
-        specgram = spectrogram_from_eeg(x)
-
-        y_class = Evaluator.CHANNEL_TO_CLASS[selected_channel]
-        y = y[y_class]
-        y_class = np.array(y_class, dtype=np.int32)
+        # Convert to scalogram
+        specgram = self.__convert_to_scalogram(x)
+        
+        # Add extra dim to x and y
+        x = np.expand_dims(x, axis=0)
+        y = np.expand_dims(y, axis=0)
+        y_class = np.expand_dims(y_class, axis=0)
+        
+        # Transpose y to [b, seq_len, 1] from [b, 1, seq_len]
+        y = np.transpose(y, (0, 2, 1))
         
         ret = {'raw_signal': x, 'spectrogram': specgram}, {'segmap': y, 'class': y_class}
         
@@ -924,10 +878,25 @@ class HDF5Dataset(Dataset):
         return self.file[col][idx]
     
     @staticmethod
-    def collate_fn(batch: list[dict[str, torch.Tensor]]):
-        # Convert the list of dictionaries to a dictionary of tensors
-        X = {k: torch.stack([d[k] for d in batch], dim=0) for k in batch[0].keys()}
-        Y = {k: torch.stack([d[k] for d in batch], dim=0) for k in batch[0].values()}
+    def collate_fn(batch: list[tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]]):
+        # Initialize the collated dictionaries
+        X, Y = {k: [] for k in batch[0][0].keys()}, {k: [] for k in batch[0][1].keys()}
+        
+        # Iterate over each item in the batch
+        for x_item, y_item in batch:
+            # Process the input data dictionary
+            for key, value in x_item.items():
+                X[key].append(value)
+            
+            # Process the target data dictionary
+            for key, value in y_item.items():
+                Y[key].append(value)
+        
+        # Convert lists of tensors to tensors for each key in X and Y
+        for key in X.keys():
+            X[key] = torch.stack(X[key], dim=0)
+        for key in Y.keys():
+            Y[key] = torch.stack(Y[key], dim=0)
         
         return X, Y
 

@@ -67,10 +67,10 @@ def add_missed_spindles(original_df, activelearning_df, filename):
         
         # Find spindles which overlap with the active learning annotation
         overlapping_spindles = original_df[(original_df['Start'] < end) & (original_df['End'] > start)]
-        
+
         # For each such spindle, set the spindle class to the active learning annotation
         updated_spindles = 0
-        for _, spindle in overlapping_spindles.iterrows():
+        for index, spindle in overlapping_spindles.iterrows():
             # Measure degree of overlap, if it's less than 50% of the spindle, don't update
             overlap_start = max(spindle['Start'], start)
             overlap_end = min(spindle['End'], end)
@@ -79,7 +79,14 @@ def add_missed_spindles(original_df, activelearning_df, filename):
             if overlap_duration / spindle_duration < 0.5:
                 continue
             
-            spindle[spindle_class] = True
+            # Update the original DataFrame directly using the index
+            if original_df.at[index, spindle_class] == True:
+                continue
+            original_df.at[index, spindle_class] = True
+            if original_df.at[index, 'Annotation'].startswith('ALI1:'):
+                original_df.at[index, 'Annotation'] = f"{original_df.at[index, 'Annotation']}, {spindle_class}"
+            else:
+                original_df.at[index, 'Annotation'] = f"ALI1: Updated {spindle_class}"
             updated_spindles += 1
             
         # If no spindles were updated, add a new spindle
@@ -88,7 +95,7 @@ def add_missed_spindles(original_df, activelearning_df, filename):
                 'MH_ID': original_df['MH_ID'][0],
                 'M_ID': original_df['M_ID'][0],
                 'EMU_Stay': original_df['EMU_Stay'][0],
-                'Annotation': 'Active Learning iteration 1',
+                'Annotation': 'ALI1: New ' + spindle_class,
                 'Start': start,
                 'End': end,
                 'Duration': end - start,

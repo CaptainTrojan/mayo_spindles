@@ -4,9 +4,9 @@ from typing import Any
 import torch
 import yaml
 
-from mayo_spindles.model_repo.cdil import CDILModel
-from mayo_spindles.model_repo.cdil_rnns import CDILGRUModel, CDILLSTMModel, CDILRNNModel
-from mayo_spindles.yasa_util import OutputSuppressor
+from model_repo.cdil import CDILModel
+from model_repo.cdil_rnns import CDILGRUModel, CDILLSTMModel, CDILRNNModel
+from yasa_util import OutputSuppressor
 from .base import BaseModel
 from .basic_models import CNNModel, GRUModel, LSTMModel, MLPModel, RNNModel
 from .tslib_models import *

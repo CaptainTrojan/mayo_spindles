@@ -105,29 +105,36 @@ class Visualizer(QMainWindow):
         # Clear the current figure
         self.canvas.figure.clear()
         
-        self.draw_input(X)
+        axs = self.canvas.figure.subplots(2, 1)
+        self.draw_input(X, axs)
+        self.draw_spindles(X, Y['segmap'], axs)
         
         # Draw the plot
         self.canvas.draw()
 
-    def __draw_spindles(self, y, axs, X, i, color, text_annotation):
-        starts = np.where(np.diff(y[i]) == 1)[0]
-        ends = np.where(np.diff(y[i]) == -1)[0]
-
-            # Highlight these regions
-        for start, end in zip(starts, ends):
-            axs[i].axvspan(X[start], X[end], color=color, alpha=0.2, label=text_annotation)
-
-    def draw_input(self, elem):
-        axs = self.canvas.figure.subplots(2, 1)
+    def draw_spindles(self, X, y, axs):
+        y = y[0]
+        starts = np.where(np.diff(y) == 1)[0]
+        ends = np.where(np.diff(y) == -1)[0]
         
+        if y[0] == 1:
+            starts = np.concatenate([[0], starts])
+        if y[-1] == 1:
+            ends = np.concatenate([ends, [len(y) - 1]])
+
+        # Highlight these regions
+        for start, end in zip(starts, ends):
+            for i in range(len(axs)):
+                axs[i].axvspan(start, end, color='red', alpha=0.2, label='GT spindle')
+
+    def draw_input(self, elem, axs):
         # Turn off all paddings and margins
         for ax in axs:
             ax.margins(0)
             ax.axis('off')
 
         specgram = elem['spectrogram']
-        signal = elem['raw_signal'] 
+        signal = elem['raw_signal'][0]
                
         # Plot the spectrogram
         axs[1].imshow(specgram, aspect='auto', origin='lower', cmap='jet')

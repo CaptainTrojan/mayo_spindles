@@ -36,7 +36,7 @@ def create_model_wrapper_class(name, Model):
 # For each model file
 for model_file in model_files:
     # Dynamically import the Model class from the file
-    Model = getattr(importlib.import_module(f'mayo_spindles.model_repo.tslib.models.{model_file}'), 'Model')
+    Model = getattr(importlib.import_module(f'model_repo.tslib.models.{model_file}'), 'Model')
 
     # Assign the new class to a variable with the same name as the model file
     globals()[f'{model_file}TSLIBModel'] = create_model_wrapper_class(model_file.lower(), Model)

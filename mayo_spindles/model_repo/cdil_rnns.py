@@ -1,7 +1,7 @@
 from copy import deepcopy
-from mayo_spindles.model_repo.cdil import CDILModel
-from mayo_spindles.model_repo.basic_models import RNNModel, GRUModel, LSTMModel
-from mayo_spindles.model_repo.base import BaseModel
+from model_repo.cdil import CDILModel
+from model_repo.basic_models import RNNModel, GRUModel, LSTMModel
+from model_repo.base import BaseModel
 
 class CDILRNNBaseModel(BaseModel):
     def __init__(self, config, cell_cls):

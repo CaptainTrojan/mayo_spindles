@@ -42,7 +42,7 @@ from sklearn.metrics import average_precision_score, roc_auc_score
 def finalizing(cls):
      cls.__finalize__(cls)
      del cls.__finalize__
-     return cls 
+     return cls
  
  
 class Metric:
@@ -69,19 +69,10 @@ class Metric:
         return str(self)
 
 
-class IntervalFMeasure(Metric):        
+class DetectionFMeasure(Metric):        
     def __call__(self, y_true, y_pred):
-        if isinstance(y_true, torch.Tensor):
-            y_true = y_true.detach().cpu().numpy()
-            
-        if isinstance(y_pred, torch.Tensor):
-            y_pred = y_pred.detach().cpu().numpy()
-            
-        y_pred = (y_pred > 0.5).astype(np.float32)  # possibly experiment with different thresholds 
-            
-        # y_true and y_pred are binary arrays of shape (batch_size, num_classes, num_samples)
-        # y_true is the ground truth
-        # y_pred is the prediction
+        # y_true contains key 'segmap' with shape [B, seq_len, 1]
+        # y_pred contains key 'detections' with shape [B, 29, 3]
         
         # true positives are the number of 1s in the intersection of y_true and y_pred
         tp = np.sum(np.logical_and(y_true, y_pred), axis=2).sum(axis=0)
@@ -128,71 +119,12 @@ class IntervalFMeasure(Metric):
     
     def __len__(self):
         return len(self._tp)
-
-
-class IntervalAUCAP(Metric):
-    def __call__(self, y_true, y_pred):
-        if isinstance(y_true, torch.Tensor):
-            y_true = y_true.detach().cpu().numpy()
-
-        if isinstance(y_pred, torch.Tensor):
-            y_pred = y_pred.detach().cpu().numpy()
-
-        # y_true and y_pred are binary arrays of shape (batch_size, num_classes, num_samples)
-        # y_true is the ground truth
-        # y_pred is the prediction
-
-        # Calculate AUC for each class
-        auc = []
-        ap = []
-        for i in range(y_true.shape[1]):
-            y_t = y_true[:, i, :].flatten()
-            
-            if y_t.sum() == 0:
-                auc.append(np.nan)
-                ap.append(np.nan)
-            else:
-                y_p = y_pred[:, i, :].flatten()
-                auc.append(roc_auc_score(y_t, y_p))
-                ap.append(average_precision_score(y_t, y_p))
         
-        self._auc.append(np.array(auc))
-        self._ap.append(np.array(ap))
-
-    def results(self):
-        # Calculate average AUC for each class
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", category=RuntimeWarning)
-            auc = np.nanmean(self._auc, axis=0)
-            ap = np.nanmean(self._ap, axis=0)
-
-        raw = pd.DataFrame({
-            'AUC': auc,
-            'AP': ap
-        }, index=Evaluator.CLASSES_INV)
-
-        macro_average = pd.DataFrame({
-            'AUC': np.nanmean(raw['AUC']),
-            'AP': np.nanmean(raw['AP'])
-        }, index=['macro-average'])
-
-        average = pd.concat([macro_average])
-        return [raw, average]
-
-    def reset(self):
-        self._auc = []
-        self._ap = []
-
-    def __str__(self):
-        return f"{self.name} ({len(self._auc)} batches)"
-
-    def __len__(self):
-        return len(self._auc)    
 
 
 @finalizing
 class Evaluator:
-    INTERVAL_F_MEASURE = IntervalFMeasure
+    INTERVAL_F_MEASURE = DetectionFMeasure
     INTERVAL_AUC_AP = IntervalAUCAP
     
     POSSIBLE_INTRACRANIAL_CHANNELS = [
@@ -244,6 +176,51 @@ class Evaluator:
     
     def __finalize__(me):
         me.CHANNEL_TO_CLASS_NAME = [me.CLASSES_INV[CLASS] for _, CLASS in me.CHANNEL_TO_CLASS.items()]
+        
+    # NEW METHODS
+    
+    
+    
+    @staticmethod 
+    def segmap_to_detections(y: np.ndarray) -> np.ndarray:
+        # Input [B, seq_len, 1], contains 0s and 1s representing the ground truth spindles
+        # Output [B, 29, 3], where 3 is 1) spindle existence (0/1), 2) center offset w.r.t. interval center (0-1), 3) spindle duration (0-1)
+        batch_size = y.shape[0]
+        seq_len = y.shape[1]
+        num_segments = 29
+        segment_length = seq_len / num_segments
+        
+        # Initialize the output array
+        detections = np.zeros((batch_size, num_segments, 3), dtype=np.float32)
+        
+        # Iterate over each batch
+        for batch_id in range(batch_size):
+            # Find the start and end of each spindle
+            starts = np.where(np.diff(y) == 1)[0]
+            ends = np.where(np.diff(y) == -1)[0]
+            
+            if y[0] == 1:
+                starts = np.concatenate([[0], starts])
+            if y[-1] == 1:
+                ends = np.concatenate([ends, [len(y) - 1]])
+                
+            assert len(starts) == len(ends), f"Number of starts and ends do not match. Starts: {len(starts)}, Ends: {len(ends)}"
+        
+            # Iterate over each spindle
+            for start, end in zip(starts, ends):
+                center = (start + end) // 2
+                segment_id = int(center / segment_length)
+                
+                # Mark spindle
+                detections[batch_id, segment_id, 0] = 1
+                # Calculate center offset
+                offset = (center % segment_length) / segment_length
+                detections[batch_id, segment_id, 1] = offset
+                # Calculate duration
+                true_duration = end - start
+        
+    
+    # OLD METHODS
     
     @staticmethod
     def is_array_empty(y: np.ndarray):

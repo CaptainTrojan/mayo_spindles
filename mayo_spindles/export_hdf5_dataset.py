@@ -4,6 +4,13 @@ import numpy as np
 from dataloader import SpindleDataModule
 import argparse
 from tqdm import tqdm
+from evaluator import Evaluator
+
+def artefactness(signal):
+    signal_median = np.median(np.abs(signal))
+    signal_max = np.max(np.abs(signal))
+    r = signal_max / signal_median
+    return r
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--data_dir', type=str, required=True)
@@ -18,23 +25,52 @@ dl = dm.train_dataloader()
 # Initialize lists to store data
 x_data = []
 y_data = []
+y_class = []
+
+artefacted_count = 0
+y_lens = []
 
 # Iterate over DataLoader and store data
 for batch in tqdm(dl, desc='Exporting data'):
     x, y = batch
-    y_data.append(y.numpy())
 
-    x = x.numpy()
     # Merge same-class channel data together
-    channels = np.concatenate([x[:, i:i+6, :].sum(1) for i in range(0, x.shape[1], 6)])
-    
-    x_data.append(channels)
-
+    x = x.numpy()[0]
+    data_channels = np.stack([x[i:i+6, :].sum(0) for i in range(0, x.shape[0], 6)])
+    labels = y.numpy()[0][:4]
+    for x_single_channel, y_single_channel, label_class in zip(data_channels, labels, range(4)):
+        # If there is at least one spindle in the label, store the data
+        spindle_timesteps = y_single_channel.sum()
+        if 0 < spindle_timesteps:
+            r = artefactness(x_single_channel)
+            if r > 5:
+                artefacted_count += 1
+                continue
+            x_data.append(x_single_channel)
+            y_data.append(y_single_channel)
+            y_class.append(label_class)
+            y_lens.append(spindle_timesteps)
+            
 # Concatenate data
 x_data = np.stack(x_data, axis=0)
-y_data = np.concatenate(y_data, axis=0)
+y_data = np.stack(y_data, axis=0)
+y_class_data = np.array(y_class)
+
+print(f'x_data shape: {x_data.shape}')
+print(f'y_data shape: {y_data.shape}')
+print(f"Rejected {artefacted_count} artefacted samples ({artefacted_count / len(y_class) * 100:.2f}%)")
 
 import json
+
+# Show histogram of spindle lengths (log scale)
+import matplotlib.pyplot as plt
+plt.hist(y_lens, bins=100)
+plt.title('Histogram of spindle lengths')
+plt.xlabel('Spindle length')
+plt.ylabel('Count')
+plt.yscale('log')
+plt.show()
+
 
 # Generate splits.json file
 splits = [0.7, 0.15, 0.15]
@@ -73,5 +109,6 @@ with open(f'{args.output_dir}/splits.json', 'w') as f:
 os.makedirs(args.output_dir, exist_ok=True)
 with h5py.File(f'{args.output_dir}/data.hdf5', 'w') as hf:
     # Create datasets
-    hf.create_dataset('x', data=x_data)
-    hf.create_dataset('y', data=y_data)
+    hf.create_dataset('x', data=x_data, chunks=(1, x_data.shape[1]))
+    hf.create_dataset('y', data=y_data, chunks=(1, y_data.shape[1]))
+    hf.create_dataset('y_class', data=y_class_data, chunks=(1, ))

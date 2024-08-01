@@ -1,11 +1,12 @@
-c_in: 24
-enc_in: 24
-dec_in: 7
-c_out: 7
+c_in: 31
+enc_in: 31
+dec_in: 64
+c_out: 64
 seq_len: 7500
 hidden_size: 64
 activation: 'gelu'
 num_layers: 2
+share_bottleneck: true
 
 # TSLib config
 
