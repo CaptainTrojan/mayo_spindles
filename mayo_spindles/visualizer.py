@@ -19,7 +19,7 @@ class Visualizer(QMainWindow):
         self.idx = 0
         self._display_mode = 'matrix'
         self._evaluator = Evaluator()
-        self._evaluator.add_metric('f1', Evaluator.INTERVAL_F_MEASURE)
+        self._evaluator.add_metric('f1', Evaluator.DETECTION_F_MEASURE)
 
         # Create a QWidget as the central widget of the QMainWindow
         self.widget = QWidget(self)
@@ -107,7 +107,7 @@ class Visualizer(QMainWindow):
         
         axs = self.canvas.figure.subplots(2, 1)
         self.draw_input(X, axs)
-        self.draw_spindles(X, Y['segmap'], axs)
+        self.draw_spindles(X, Y['segmentation'], axs)
         
         # Draw the plot
         self.canvas.draw()
