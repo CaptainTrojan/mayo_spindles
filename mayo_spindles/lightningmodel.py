@@ -3,7 +3,7 @@ import pytorch_lightning as pl
 import torch
 import wandb
 
-from h5py_visualizer import H5Visualizer
+from training_visualizer import H5Visualizer
 from evaluator import Evaluator
 
 from model_repo.collection import ModelRepository
@@ -58,11 +58,11 @@ class EfficientIntervalHead(torch.nn.Module):
     Output: {'intervals': [batch, 2] (start, end), 'segmentation': [batch, seq_len]}
     """
 
-    def __init__(self, share_bottleneck=True):
+    def __init__(self, input_size, detector_config):
         super().__init__()
-        self.share_bottleneck = share_bottleneck
+        self.share_bottleneck = detector_config['share_bottleneck']
         
-        channels = [32, 32, 32, 32, 64]
+        channels = [input_size[-1], 64, 64, 64, 64]
         factors = [5, 5, 5, 2]
         num_layers = len(channels)
         
@@ -127,8 +127,8 @@ class SpindleDetector(pl.LightningModule):
         self.detector_config = detector_config
         # Load the model from the model repository
         repo = ModelRepository()
-        self.model = repo.load(model_name, model_config)
-        self.head = EfficientIntervalHead(share_bottleneck=detector_config['share_bottleneck'])
+        self.model, intermediate_size = repo.load(model_name, model_config)
+        self.head = EfficientIntervalHead(intermediate_size, detector_config)
         
         # Define the loss function
         self.bce_loss = torch.nn.BCEWithLogitsLoss()
@@ -154,6 +154,12 @@ class SpindleDetector(pl.LightningModule):
         
         self.report_full_stats = False
         self.wandb_logger = None
+        self.example_input_array = {
+            "x": {
+                'raw_signal': torch.randn(1, 1, 7500),
+                'spectrogram': torch.randn(1, 15, 7500),
+            }
+        }
         
     def set_wandb_logger(self, wandb_logger):
         # Add the wandb logger
