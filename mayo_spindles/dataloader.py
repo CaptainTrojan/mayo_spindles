@@ -844,7 +844,7 @@ class HDF5Dataset(Dataset):
         # for key in y.keys(): No longer true because of detections array
         #     assert y[key].shape[0] == self.seq_len, f"Expected {y[key].shape[0]} to be {self.seq_len}"
             
-        y['class'] = torch.tensor([Y_class])
+        y['class'] = torch.tensor([Y_class], device='cuda')
 
         return x, y
     
@@ -894,7 +894,6 @@ class HDF5Dataset(Dataset):
             detections[segment_id, 2] = Evaluator.true_duration_to_sigmoid(true_duration)
         
         return detections
-            
     
     def __load_one_xy_pair(self, index):
         x = self.__load_one_element('x', index)
@@ -918,7 +917,7 @@ class HDF5Dataset(Dataset):
         ret = {'raw_signal': x, 'spectrogram': specgram}, {'segmentation': y_seg, 'detection': y_det, 'class': y_class}
         
         # Convert to torch tensors
-        ret = {k: torch.from_numpy(v) for k, v in ret[0].items()}, {k: torch.from_numpy(v) for k, v in ret[1].items()}
+        ret = {k: torch.as_tensor(v, device='cuda') for k, v in ret[0].items()}, {k: torch.as_tensor(v, device='cuda') for k, v in ret[1].items()}
         return ret
 
     def __load_one_element(self, col, idx):
