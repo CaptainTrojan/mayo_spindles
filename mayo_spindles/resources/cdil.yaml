@@ -1,2 +1,3 @@
-num_layers: 12
-hidden_channels: 64
+num_layers: 13
+hidden_channels: 128
+c_out: 64
