@@ -9,7 +9,7 @@ from lightningmodel import SpindleDetector
 import pytorch_lightning as pl
 from pytorch_lightning.tuner.tuning import Tuner
 from pytorch_lightning.callbacks import StochasticWeightAveraging, ModelCheckpoint, EarlyStopping, LearningRateMonitor
-from pytorch_lightning.loggers import WandbLogger
+from pytorch_lightning.loggers import WandbLogger, Logger
 import wandb
 
 def str2bool(v):
@@ -38,6 +38,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_workers', type=int, default=10, help='number of workers for the data loader (default: 10)')
     parser.add_argument('--lr', type=float, default=None, help='learning rate (default: None)')
     parser.add_argument('--batch_size', type=int, default=None, help='batch size (default: None)')
+    parser.add_argument('--smoke', action='store_true', help='run a smoke test')
     args = parser.parse_args()
     
     data_module = HDF5SpindleDataModule(args.data, batch_size=2, num_workers=args.num_workers)
@@ -49,7 +50,7 @@ if __name__ == '__main__':
         model_config = {}
         
     mode = 'max'
-    metric = 'F1'
+    metric = 'val_f_measure_avg'
     detector_config = {
         'share_bottleneck': args.share_bottleneck,
     }
@@ -58,26 +59,28 @@ if __name__ == '__main__':
     # Sanity check that the model works
     # random_x, random_y = next(iter(data_module.train_dataloader()))
     # out_y = model(random_x)
-    
-    wandb_logger = WandbLogger(project=args.project_name, save_dir=None, dir=None, offline=False)
-    wandb_logger.log_hyperparams({
-        'model': model_name,
-        'additional_model_config': model_config,
-        'checkpoint_path': args.checkpoint_path,
-    })
-    model.set_wandb_logger(wandb_logger)
-    
+    if not args.smoke:
+        wandb_logger = WandbLogger(project=args.project_name, save_dir=None, dir=None, offline=False)
+        wandb_logger.log_hyperparams({
+            'model': model_name,
+            'additional_model_config': model_config,
+            'checkpoint_path': args.checkpoint_path,
+        })
+        model.set_wandb_logger(wandb_logger)
+    else:
+        wandb_logger = None
+
     # Initialize a trainer with the StochasticWeightAveraging callback
     swa_callback = StochasticWeightAveraging(swa_lrs=1e-2)
     early_stopping_callback = EarlyStopping(
-        monitor='val_f_measure_avg',
+        monitor=f'{metric}',
         patience=30,
         mode=mode,
     )
     checkpoint_callback = ModelCheckpoint(
-        monitor='val_f_measure_avg',
+        monitor=f'{metric}',
         dirpath=args.checkpoint_path,
-        filename='spindle-detector-{epoch:02d}-{val_f_measure_avg:.2f}',
+        filename='spindle-detector-{epoch:02d}-{' + f'{metric}' + ':.2f}',
         save_top_k=1,
         mode=mode,
     )
@@ -85,18 +88,21 @@ if __name__ == '__main__':
 
     trainer = pl.Trainer(
         accelerator='gpu',
-        max_epochs=args.epochs,
+        max_epochs=args.epochs if not args.smoke else 3,
         enable_checkpointing=True,
         callbacks=[swa_callback, checkpoint_callback, early_stopping_callback, lr_monitor],
         logger=wandb_logger,
         log_every_n_steps=10,
-        enable_progress_bar=True
+        enable_progress_bar=True,
+        profiler='simple' if args.smoke else None,
     )
     
     tuner = Tuner(trainer)
     
     if args.lr is not None:
         model.lr = args.lr
+    elif args.smoke:
+        model.lr = 4e-4
     else:
         # Use the Learning Rate Finder
         data_module.batch_size = 16
@@ -110,8 +116,10 @@ if __name__ == '__main__':
         
     if args.batch_size is not None:
         data_module.batch_size = args.batch_size
+    elif args.smoke:
+        data_module.batch_size = 32
     else:
-        new_batch_size = tuner.scale_batch_size(model, datamodule=data_module, mode='power', max_trials=7, steps_per_trial=8)
+        new_batch_size = tuner.scale_batch_size(model, datamodule=data_module, mode='power', max_trials=6, steps_per_trial=5)
         new_batch_size = int(new_batch_size * 0.75)  # Reduce batch size a bit to be safe
         print(f"Suggested batch size: {new_batch_size}")
 
@@ -119,9 +127,10 @@ if __name__ == '__main__':
         data_module.batch_size = new_batch_size
         
     # Try to clear GPU memory as much as possible
-    if args.lr is None:
+    if args.lr is None and not args.smoke:
         del lr_finder
-    del tuner
+    if args.batch_size is None and not args.smoke:
+        del tuner
     torch.cuda.empty_cache()
     gc.collect()
     
