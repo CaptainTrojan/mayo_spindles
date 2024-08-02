@@ -55,6 +55,7 @@ if __name__ == '__main__':
         'share_bottleneck': args.share_bottleneck,
     }
     model = SpindleDetector(model_name, model_config, detector_config, metric, mode)
+    # model.to_onnx("export_model.onnx")  TODO make CDIL onnx-compatible
     
     # Sanity check that the model works
     # random_x, random_y = next(iter(data_module.train_dataloader()))
