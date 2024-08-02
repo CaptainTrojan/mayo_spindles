@@ -49,11 +49,12 @@ class DetectionFMeasure(Metric):
 
         for y_true, y_pred, _cls in zip(b_y_true['detection'], b_y_pred['detection'], b_y_true['class']):
             y_true = Evaluator.detections_to_intervals(y_true, seq_len)
-            y_pred = Evaluator.detections_to_intervals(y_pred, seq_len)
+            y_pred = Evaluator.detections_to_intervals(y_pred, seq_len, confidence_threshold=0.5)
             
             iou_threshold = 0.3
         
             # Apply NMS 
+            y_true = Evaluator.intervals_nms(y_true)  # Assume that labels are already non-overlapping, but NMS drops padding
             y_pred = Evaluator.intervals_nms(y_pred, iou_threshold=iou_threshold)
             
             # Find matching between intervals. If two intervals overlap by more than iou_threshold, they are considered a match (true positive).
@@ -61,8 +62,12 @@ class DetectionFMeasure(Metric):
             
             num_tp = 0
             
+            unmatched_true_spindle_indices = list(range(len(y_true)))
+            
             for predicted_spindle in y_pred:
-                for true_spindle in y_true:
+                to_remove = -1
+                for idx in unmatched_true_spindle_indices:
+                    true_spindle = y_true[idx]
                     start_max = max(predicted_spindle[0], true_spindle[0])
                     end_min = min(predicted_spindle[1], true_spindle[1])
                     intersection = max(0, end_min - start_max)
@@ -70,7 +75,10 @@ class DetectionFMeasure(Metric):
                     iou = intersection / union
                     if iou > iou_threshold:
                         num_tp += 1
+                        to_remove = idx
                         break
+                if to_remove != -1:
+                    unmatched_true_spindle_indices.remove(to_remove)
             
             num_fp = len(y_pred) - num_tp
             num_fn = len(y_true) - num_tp
@@ -137,6 +145,8 @@ class SegmentationJaccardIndex(Metric):
         # y_pred contains key 'segmentation' with shape [B, seq_len, 1]
         
         for y_true, y_pred, _cls in zip(b_y_true['segmentation'], b_y_pred['segmentation'], b_y_true['class']):
+            y_pred = (y_pred > 0.5).astype(int)
+            y_true = y_true.astype(int)
             intersection = np.logical_and(y_true, y_pred).sum()
             union = np.logical_or(y_true, y_pred).sum()
 
@@ -303,7 +313,7 @@ class Evaluator:
         return output
     
     @staticmethod
-    def intervals_nms(intervals: np.ndarray, iou_threshold=0.3) -> np.ndarray:
+    def intervals_nms(intervals: np.ndarray, iou_threshold=1.0) -> np.ndarray:
         """
         Perform non-maximum suppression on intervals.
         Input: [N, 3], 3 = start, end, confidence
@@ -311,6 +321,9 @@ class Evaluator:
         """
         if len(intervals) == 0:
             return np.array([])
+        
+        # Drop all intervals which are zeroes (padding)
+        intervals = intervals[intervals[:, 0] != 0]
 
         # Sort intervals by confidence score in descending order
         intervals = intervals[intervals[:, 2].argsort()[::-1]]
@@ -488,13 +501,21 @@ class Evaluator:
         self._metrics.append(metric)
             
     def batch_evaluate(self, y_true: dict[str, torch.Tensor | np.ndarray], y_pred: dict[str, torch.Tensor | np.ndarray]):
-        y_pred = deepcopy(y_pred)
-        y_pred['detection'] = y_pred['detection'].sigmoid()
-        y_t = Evaluator.dict_struct_from_torch_to_npy(y_true)
-        y_p = Evaluator.dict_struct_from_torch_to_npy(y_pred)
+        y_t, y_p = self.preprocess_y(y_true, y_pred)
         
         for metric in self._metrics:
             metric(y_t, y_p)
+
+    @staticmethod
+    def preprocess_y(y_true, y_pred):
+        y_pred = deepcopy(y_pred)
+        # Apply sigmoid to detection
+        y_pred['detection'] = y_pred['detection'].sigmoid()
+        # Apply sigmoid to segmentation
+        y_pred['segmentation'] = y_pred['segmentation'].sigmoid()
+        y_t = Evaluator.dict_struct_from_torch_to_npy(y_true)
+        y_p = Evaluator.dict_struct_from_torch_to_npy(y_pred)
+        return y_t,y_p
     
     @staticmethod
     def batch_get_classes_true(true_metadata: list[dict], size: int):
