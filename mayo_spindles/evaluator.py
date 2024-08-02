@@ -143,6 +143,8 @@ class SegmentationJaccardIndex(Metric):
             self._intersection[_cls] += intersection
             self._union[_cls] += union
         
+        self._has_elements = True
+        
     def results(self):
         # Calculate Jaccard index for each class
         jaccard_index = {cls: self._intersection[cls] / self._union[cls] if self._union[cls] != 0 else np.nan
@@ -173,12 +175,13 @@ class SegmentationJaccardIndex(Metric):
     def reset(self):
         self._intersection = defaultdict(lambda: 0)
         self._union = defaultdict(lambda: 0)
+        self._has_elements = False
         
     def __str__(self):
         return f"{self.name} ({len(self._tp)} batches)"
     
     def __len__(self):
-        return self._intersection[next(iter(self._intersection.keys()))]
+        return 1 if self._has_elements else 0
 
 @finalizing
 class Evaluator:
