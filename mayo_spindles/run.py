@@ -4,12 +4,12 @@ import torch
 
 import yaml
 from model_repo.collection import ModelRepository
-from dataloader import SpindleDataModule, HDF5SpindleDataModule
+from dataloader import HDF5SpindleDataModule
 from lightningmodel import SpindleDetector
 import pytorch_lightning as pl
 from pytorch_lightning.tuner.tuning import Tuner
 from pytorch_lightning.callbacks import StochasticWeightAveraging, ModelCheckpoint, EarlyStopping, LearningRateMonitor
-from pytorch_lightning.loggers import WandbLogger, Logger
+from pytorch_lightning.loggers import WandbLogger
 import wandb
 
 def str2bool(v):
@@ -105,8 +105,8 @@ if __name__ == '__main__':
         model.lr = 4e-4
     else:
         # Use the Learning Rate Finder
-        data_module.batch_size = 16
-        lr_finder = tuner.lr_find(model, datamodule=data_module, min_lr=1e-6, max_lr=1e-1, num_training=100)
+        data_module.batch_size = 32
+        lr_finder = tuner.lr_find(model, datamodule=data_module, min_lr=1e-6, max_lr=5e-1, num_training=50)
         # Plot learning rate
         fig = lr_finder.plot(suggest=True)
         fig.savefig("lr_finder.png")
