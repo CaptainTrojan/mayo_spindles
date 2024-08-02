@@ -119,4 +119,4 @@ class ModelRepository:
         if output.size() != expected_output_size:
             raise ValueError(f"Model output is not of size {expected_output_size} and is instead of size {output.size()}")
 
-        return model
+        return model, expected_output_size
