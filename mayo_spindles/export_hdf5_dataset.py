@@ -32,7 +32,7 @@ artefacted_count = 0
 y_lens = []
 
 def __convert_to_scalogram(data: np.ndarray):
-    coeffs, frequencies = pywt.cwt(data, np.geomspace(150, 350, num=15), 'shan6-13', sampling_period=1/250)
+    coeffs, frequencies = pywt.cwt(data, np.geomspace(135, 270, num=15), 'shan6-13', sampling_period=1/250)
     return np.abs(coeffs)
 
 # Iterate over DataLoader and store data
