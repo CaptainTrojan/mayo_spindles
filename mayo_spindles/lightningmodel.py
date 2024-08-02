@@ -196,7 +196,10 @@ class SpindleDetector(pl.LightningModule):
         detection_prob_loss = self.bce_loss(y_pred['detection'][..., 0], y_true['detection'][..., 0])
         # Loss for detection parameters (center offset, duration), but only where spindles exist
         spindle_exists = y_true['detection'][..., 0] == 1
-        detection_params_loss = self.mse_loss(y_pred['detection'][spindle_exists][..., 1:].sigmoid(), y_true['detection'][spindle_exists][..., 1:])
+        if spindle_exists.sum() == 0:
+            detection_params_loss = torch.tensor(0.0, device=detection_prob_loss.device)
+        else:
+            detection_params_loss = self.mse_loss(y_pred['detection'][spindle_exists][..., 1:].sigmoid(), y_true['detection'][spindle_exists][..., 1:])
         # Loss for segmentation
         segmentation_loss = self.bce_loss(y_pred['segmentation'], y_true['segmentation'])
         
@@ -215,6 +218,8 @@ class SpindleDetector(pl.LightningModule):
     
     def on_validation_epoch_start(self) -> None:
         self.val_samples = []
+        self.val_loss_sum = 0.0
+        self.val_steps = 0
 
     def validation_step(self, val_batch, batch_idx):
         x, y_true = val_batch
@@ -232,6 +237,27 @@ class SpindleDetector(pl.LightningModule):
         self.val_loss_sum += loss
         self.val_steps += 1
         return loss
+    
+    def on_validation_epoch_end(self) -> None:
+        val_loss_mean = self.val_loss_sum / self.val_steps
+        self.log('val_loss', val_loss_mean)
+        
+        results: dict[str, list[pd.DataFrame]] = self.evaluator.results()
+        
+        self.log_metric_results('det_f1', results)
+        self.log_metric_results('seg_iou', results)
+        
+        if self.report_full_stats and self.wandb_logger is not None:            
+            print("Logging predictions to wandb...")
+            plots = []
+            for i, (x, y, y_hat) in enumerate(self.val_samples):
+                plot = self.visualizer.generate_prediction_plot(x, y, y_hat)
+                plots.append(plot)
+            self.wandb_logger.log_image(key=f'preds', images=plots)
+            # Clear figures
+            self.visualizer.clear_figures()
+                
+        self.evaluator.reset()
     
     def log_metric_results(self, name, results):
         df_name_map = {
@@ -268,27 +294,6 @@ class SpindleDetector(pl.LightningModule):
         # Log the micro average f1 score to the logger
         for df_name in df_names:
             self.log(f'val_{df_name}_avg', float(results[1].iloc[0][df_name]))
-
-    def on_validation_epoch_end(self) -> None:
-        val_loss_mean = self.val_loss_sum / self.val_steps
-        self.log('val_loss', val_loss_mean)
-        
-        results: dict[str, list[pd.DataFrame]] = self.evaluator.results()
-        
-        self.log_metric_results('det_f1', results)
-        self.log_metric_results('seg_iou', results)
-        
-        if self.report_full_stats and self.wandb_logger is not None:            
-            print("Logging predictions to wandb...")
-            plots = []
-            for i, (x, y, y_hat) in enumerate(self.val_samples):
-                plot = self.visualizer.generate_prediction_plot(x, y, y_hat)
-                plots.append(plot)
-            self.wandb_logger.log_image(key=f'preds', images=plots)
-            # Clear figures
-            self.visualizer.clear_figures()
-                
-        self.evaluator.reset()
     
     def test_step(self, test_batch, batch_idx):
         raise NotImplementedError("Test step not implemented")
