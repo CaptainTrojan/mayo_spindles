@@ -42,16 +42,16 @@
             "program": "mayo_spindles/run.py",
             "console": "integratedTerminal",
             "justMyCode": false,
-            "args": ["--model", "cdil", "--data", "hdf5_data", "--epochs", "10"]
+            "args": ["--model", "cdil", "--data", "hdf5_data", "--epochs", "300", "--batch_size", "32", "--lr", "0.001"]
         },
         {
-            "name": "Training with Profiler",
+            "name": "Training (smoke)",
             "type": "debugpy",
             "request": "launch",
-            "module": "cProfile",
-            "args": ["-m", "mayo_spindles.run", "--model", "cdil", "--data", "hdf5_data", "--epochs", "10"],
+            "program": "mayo_spindles/run.py",
             "console": "integratedTerminal",
-            "justMyCode": false
+            "justMyCode": false,
+            "args": ["--model", "cdil", "--data", "hdf5_data", "--smoke"]
         },
         {
             "name": "Export Dataset",
