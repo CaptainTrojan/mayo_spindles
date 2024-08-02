@@ -58,42 +58,41 @@ class EfficientIntervalHead(torch.nn.Module):
     Output: {'intervals': [batch, 2] (start, end), 'segmentation': [batch, seq_len]}
     """
 
-    def __init__(self, num_layers, share_bottleneck=True):
+    def __init__(self, share_bottleneck=True):
         super().__init__()
         self.share_bottleneck = share_bottleneck
-        self.num_layers = num_layers
         
-        channels = [64, 64, 128, 128, 128, 128, 256, 256]
-        assert num_layers < len(channels)
+        channels = [32, 32, 32, 32, 64]
+        factors = [5, 5, 5, 2]
+        num_layers = len(channels)
         
         if self.share_bottleneck:
             self.bottleneck = torch.nn.Sequential(
-                *[Downscale1D(channels[i], channels[i + 1]) for i in range(num_layers - 1)]
+                *[Downscale1D(channels[i], channels[i + 1], factor=factors[i]) for i in range(num_layers - 1)]
             )
         else:
             self.bottleneck_detection = torch.nn.Sequential(
-                *[Downscale1D(channels[i], channels[i + 1]) for i in range(num_layers - 1)]
+                *[Downscale1D(channels[i], channels[i + 1], factor=factors[i]) for i in range(num_layers - 1)]
             )
             
             self.bottleneck_segmentation = torch.nn.Sequential(
-                *[Downscale1D(channels[i], channels[i + 1]) for i in range(num_layers - 1)]
+                *[Downscale1D(channels[i], channels[i + 1], factor=factors[i]) for i in range(num_layers - 1)]
             )
         
         # Detection head - for each block, predict:
         # - whether it contains a spindle
         # - where is the spindle center
         # - what is the spindle duration
-        self.detection_neck = torch.nn.Sequential(
-            *[Downscale1D(channels[num_layers-1], channels[num_layers-1]) for _ in range(2)],
-        )
         self.detection_head = torch.nn.Sequential(
+            torch.nn.Linear(channels[num_layers-1], channels[num_layers-1]),
+            torch.nn.SiLU(),
             torch.nn.Linear(channels[num_layers-1], 3),
-            torch.nn.Sigmoid()
+            # torch.nn.Sigmoid()
         )
         
         # Segmentation head - upscale blocks back and predict the segmentation
         self.segmentation_neck = torch.nn.Sequential(
-            *[Upscale1D(channels[i+1], channels[i]) for i in range(num_layers - 2, -1, -1)],
+            *[Upscale1D(channels[i+1], channels[i], factor=factors[i]) for i in range(num_layers - 2, -1, -1)],
         )
         self.segmentation_head = torch.nn.Sequential(
             torch.nn.Linear(channels[0], 1),
@@ -102,18 +101,18 @@ class EfficientIntervalHead(torch.nn.Module):
     def forward(self, x):
         if self.share_bottleneck:
             bottleneck = self.bottleneck(x)
-            detection = self.detection_head(self.detection_neck(bottleneck).transpose(1, 2))
+            detection = self.detection_head(bottleneck.transpose(1, 2))
             segmentation = self.segmentation_head(self.segmentation_neck(bottleneck).transpose(1, 2))
         else:
             bottleneck_detection = self.bottleneck_detection(x)
             bottleneck_segmentation = self.bottleneck_segmentation(x)
             
-            detection = self.detection_head(self.detection_neck(bottleneck_detection).transpose(1, 2))
+            detection = self.detection_head(bottleneck_detection.transpose(1, 2))
             segmentation = self.segmentation_head(self.segmentation_neck(bottleneck_segmentation).transpose(1, 2))
             
-        # Pad lost timesteps to segmentation with zeros
+        # Pad lost timesteps to segmentation with -1e9
         if segmentation.shape[1] < x.shape[2]:
-            pad = torch.zeros(x.shape[0], x.shape[2] - segmentation.shape[1], 1, device=segmentation.device)
+            pad = torch.ones(x.shape[0], x.shape[2] - segmentation.shape[1], 1, device=segmentation.device) * -1e9
             segmentation = torch.cat([segmentation, pad], dim=1)
         
         return {'detection': detection, 'segmentation': segmentation}
@@ -129,10 +128,11 @@ class SpindleDetector(pl.LightningModule):
         # Load the model from the model repository
         repo = ModelRepository()
         self.model = repo.load(model_name, model_config)
-        self.head = EfficientIntervalHead(num_layers=7, share_bottleneck=detector_config['share_bottleneck'])
+        self.head = EfficientIntervalHead(share_bottleneck=detector_config['share_bottleneck'])
         
         # Define the loss function
-        self.loss = torch.nn.BCELoss()
+        self.bce_loss = torch.nn.BCEWithLogitsLoss()
+        self.mse_loss = torch.nn.MSELoss()
         
         # Define the evaluator
         self.evaluator = Evaluator()
@@ -186,19 +186,29 @@ class SpindleDetector(pl.LightningModule):
         y_hat = self.head(features)
         return y_hat
     
-    def calculate_loss(self, x, y, do_eval=False, return_y_hat=False):
-        y_hat = self.forward(x)
+    def calculate_loss(self, x, y_true, do_eval=False, return_y_pred=False):
+        y_pred = self.forward(x)
         if do_eval:
-            self.evaluator.batch_evaluate_no_conversion(y, y_hat)
+            self.evaluator.batch_evaluate(y_true, y_pred)
+        
+        # Loss for detection probability (spindle exists?)
+        detection_prob_loss = self.bce_loss(y_pred['detection'][..., 0], y_true['detection'][..., 0])
+        # Loss for detection parameters (center offset, duration), but only where spindles exist
+        spindle_exists = y_true['detection'][..., 0] == 1
+        detection_params_loss = self.mse_loss(y_pred['detection'][spindle_exists][..., 1:].sigmoid(), y_true['detection'][spindle_exists][..., 1:])
+        # Loss for segmentation
+        segmentation_loss = self.bce_loss(y_pred['segmentation'], y_true['segmentation'])
+        
+        loss = detection_prob_loss + detection_params_loss + segmentation_loss
             
-        if return_y_hat:
-            return self.loss(y_hat, y), y_hat
+        if return_y_pred:
+            return loss, y_pred
         else:
-            return self.loss(y_hat, y)
+            return loss
         
     def training_step(self, train_batch, batch_idx):
-        x, y = train_batch
-        loss = self.calculate_loss(x, y)
+        x, y_true = train_batch
+        loss = self.calculate_loss(x, y_true)
         self.log('train_loss', loss)
         return loss
     
@@ -206,11 +216,17 @@ class SpindleDetector(pl.LightningModule):
         self.val_samples = []
 
     def validation_step(self, val_batch, batch_idx):
-        x, y = val_batch
-        loss, y_hat = self.calculate_loss(x, y, do_eval=True, return_y_hat=True)
+        x, y_true = val_batch
+        loss, y_pred = self.calculate_loss(x, y_true, do_eval=True, return_y_pred=True)
         
-        for i in range(min(self.val_samples_target_amount - len(self.val_samples), len(x))):
-            self.val_samples.append((x[i], y[i], y_hat[i]))
+        # Save the samples for visualization
+        if len(self.val_samples) < self.val_samples_target_amount:
+            samples_to_take = min(self.val_samples_target_amount - len(self.val_samples), len(x[next(iter(x.keys()))]))  # Take at most the batch size
+            for i in range(samples_to_take):
+                x_slice = Evaluator.take_slice_from_dict_struct(x, slice(i, i+1))
+                y_true_slice = Evaluator.take_slice_from_dict_struct(y_true, slice(i, i+1))
+                y_pred_slice = Evaluator.take_slice_from_dict_struct(y_pred, slice(i, i+1))
+                self.val_samples.append((x_slice, y_true_slice, y_pred_slice))            
         
         self.val_loss_sum += loss
         self.val_steps += 1
@@ -218,8 +234,8 @@ class SpindleDetector(pl.LightningModule):
     
     def log_metric_results(self, name, results):
         df_name_map = {
-            'det_f1': ('detection f-measure',),
-            'seg_iou': ('segmentation jaccard index',),
+            'det_f1': ('f_measure',),
+            'seg_iou': ('jaccard_index',),
         }
         
         results = results[name]
@@ -231,7 +247,7 @@ class SpindleDetector(pl.LightningModule):
         for i in range(len(results)):
             results[i].insert(0, 'row', results[i].index)
         
-        # Log the tables to the logger, but only if val loss is improved
+        # Log the tables to the logger
         if self.report_full_stats:
             print("Logging result tables to wandb...")
             # Build the tables
@@ -246,11 +262,11 @@ class SpindleDetector(pl.LightningModule):
         # Log all f1 scores (for each class) to the logger as well
         for class_name, values in results[0].iterrows():
             for df_name in df_names:
-                self.log(f'val_{df_name}_{class_name}', values[df_name])
+                self.log(f'val_{df_name}_{class_name}', float(values[df_name]))
             
         # Log the micro average f1 score to the logger
         for df_name in df_names:
-            self.log(f'val_{df_name}_avg', results[1].iloc[0][df_name])
+            self.log(f'val_{df_name}_avg', float(results[1].iloc[0][df_name]))
 
     def on_validation_epoch_end(self) -> None:
         val_loss_mean = self.val_loss_sum / self.val_steps

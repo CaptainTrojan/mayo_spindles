@@ -70,14 +70,14 @@ if __name__ == '__main__':
     # Initialize a trainer with the StochasticWeightAveraging callback
     swa_callback = StochasticWeightAveraging(swa_lrs=1e-2)
     early_stopping_callback = EarlyStopping(
-        monitor='val_F1',
+        monitor='val_f_measure_avg',
         patience=30,
         mode=mode,
     )
     checkpoint_callback = ModelCheckpoint(
-        monitor='val_F1',
+        monitor='val_f_measure_avg',
         dirpath=args.checkpoint_path,
-        filename='spindle-detector-{epoch:02d}-{val_F1:.2f}',
+        filename='spindle-detector-{epoch:02d}-{val_f_measure_avg:.2f}',
         save_top_k=1,
         mode=mode,
     )
@@ -89,7 +89,8 @@ if __name__ == '__main__':
         enable_checkpointing=True,
         callbacks=[swa_callback, checkpoint_callback, early_stopping_callback, lr_monitor],
         logger=wandb_logger,
-        log_every_n_steps=10  
+        log_every_n_steps=10,
+        enable_progress_bar=True
     )
     
     tuner = Tuner(trainer)
@@ -98,6 +99,7 @@ if __name__ == '__main__':
         model.lr = args.lr
     else:
         # Use the Learning Rate Finder
+        data_module.batch_size = 16
         lr_finder = tuner.lr_find(model, datamodule=data_module, min_lr=1e-6, max_lr=1e-1, num_training=100)
         # Plot learning rate
         fig = lr_finder.plot(suggest=True)
@@ -109,7 +111,7 @@ if __name__ == '__main__':
     if args.batch_size is not None:
         data_module.batch_size = args.batch_size
     else:
-        new_batch_size = tuner.scale_batch_size(model, datamodule=data_module, mode='power', max_trials=5, steps_per_trial=20)
+        new_batch_size = tuner.scale_batch_size(model, datamodule=data_module, mode='power', max_trials=7, steps_per_trial=8)
         new_batch_size = int(new_batch_size * 0.75)  # Reduce batch size a bit to be safe
         print(f"Suggested batch size: {new_batch_size}")
 

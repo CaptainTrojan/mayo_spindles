@@ -8,38 +8,6 @@ from sklearn.metrics import average_precision_score, roc_auc_score
 from collections import defaultdict
 
 
-# def interval_hit_rate(y_true: np.ndarray, y_pred: np.ndarray):
-#     # y_true and y_pred are binary arrays
-#     # y_true is the ground truth
-#     # y_pred is the prediction
-#     raise NotImplementedError("This method is not implemented yet")
-
-#     if Evaluator.is_array_empty(y_true):
-#         return None
-    
-#     num_intervals = 0
-#     num_hits = 0
-#     y_true = y_true.copy()
-#     interval_start = -1
-#     for i in range(len(y_pred)):
-#         if y_true[i] == 1:
-#             if interval_start == -1:
-#                 interval_start = i
-#                 num_intervals += 1
-#             if y_pred[i] == 1:
-#                 num_hits += 1
-#                 # flood fill y_true with 0s
-#                 j = interval_start
-#                 while j < len(y_true) and y_true[j] == 1:
-#                     y_true[j] = 0
-#                     j += 1
-#                 interval_start = -1
-#         else:
-#             interval_start = -1
-                
-#     return num_hits / num_intervals
-
-
 def finalizing(cls):
      cls.__finalize__(cls)
      del cls.__finalize__
@@ -72,16 +40,13 @@ class Metric:
 
 class DetectionFMeasure(Metric):        
     def __call__(self, b_y_true, b_y_pred):
-        # y_true contains key 'detections' with shape [B, 29, 3]
-        # y_pred contains key 'detections' with shape [B, 29, 3]
-        
-        b_y_pred = Evaluator.dict_struct_from_torch_to_npy(b_y_pred)
-        b_y_true = Evaluator.dict_struct_from_torch_to_npy(b_y_true)
+        # y_true contains key 'detection' with shape [B, 30, 3]
+        # y_pred contains key 'detection' with shape [B, 30, 3]
         
         # First, convert detections to intervals
         seq_len = b_y_true['segmentation'].shape[-2]
 
-        for y_true, y_pred in zip(b_y_true['detections'], b_y_pred['detections']):
+        for y_true, y_pred, _cls in zip(b_y_true['detection'], b_y_pred['detection'], b_y_true['class']):
             y_true = Evaluator.detections_to_intervals(y_true, seq_len)
             y_pred = Evaluator.detections_to_intervals(y_pred, seq_len)
             
@@ -109,7 +74,7 @@ class DetectionFMeasure(Metric):
             num_fp = len(y_pred) - num_tp
             num_fn = len(y_true) - num_tp
             
-            _cls = Evaluator.CLASSES_INV[y_true['class']]
+            _cls = Evaluator.CLASSES_INV[_cls[0]]
             self._tp[_cls].append(num_tp)
             self._tp_plus_fp[_cls].append(num_tp + num_fp)
             self._tp_plus_fn[_cls].append(num_tp + num_fn)
@@ -120,7 +85,7 @@ class DetectionFMeasure(Metric):
         tp_plus_fp_sum = np.sum([np.sum(tp_plus_fp_list) for tp_plus_fp_list in self._tp_plus_fp.values()])
         tp_plus_fn_sum = np.sum([np.sum(tp_plus_fn_list) for tp_plus_fn_list in self._tp_plus_fn.values()])
     
-        # Calculate precision, recall, and f-measure for each class
+        # Calculate precision, recall, and f_measure for each class
         precision = {cls: np.sum(self._tp[cls]) / np.sum(self._tp_plus_fp[cls]) for cls in self._tp}
         recall = {cls: np.sum(self._tp[cls]) / np.sum(self._tp_plus_fn[cls]) for cls in self._tp}
         f_measure = {cls: np.where(np.isnan(precision[cls]) | np.isnan(recall[cls]), np.nan, 
@@ -131,22 +96,22 @@ class DetectionFMeasure(Metric):
         raw = pd.DataFrame({
             'precision': precision,
             'recall': recall,
-            'f-measure': f_measure
-        }, index=Evaluator.CLASSES_INV)
+            'f_measure': f_measure
+        }, index=Evaluator.CLASSES_INV, dtype=np.float32)
     
         # Calculate macro-average
         macro_average = pd.DataFrame({
             'precision': np.mean(list(precision.values())),
             'recall': np.mean(list(recall.values())),
-            'f-measure': np.mean(list(f_measure.values()))
-        }, index=['macro-average'])
+            'f_measure': np.mean(list(f_measure.values()))
+        }, index=['macro-average'], dtype=np.float32)
     
         # Calculate micro-average
         micro_average = pd.DataFrame({
             'precision': tp_sum / tp_plus_fp_sum,
             'recall': tp_sum / tp_plus_fn_sum,
-            'f-measure': 2 * tp_sum / (tp_plus_fp_sum + tp_plus_fn_sum)
-        }, index=['micro-average'])
+            'f_measure': 2 * tp_sum / (tp_plus_fp_sum + tp_plus_fn_sum)
+        }, index=['micro-average'], dtype=np.float32)
     
         # Concatenate micro and macro averages
         micro_macro_average = pd.concat([micro_average, macro_average])
@@ -162,23 +127,21 @@ class DetectionFMeasure(Metric):
         return f"{self.name} ({len(self._tp)} batches)"
     
     def __len__(self):
-        return len(self._tp)
+        return len(self._tp[next(iter(self._tp.keys()))])
         
 
 class SegmentationJaccardIndex(Metric):
-    def __call__(self, y_true, y_pred):
+    def __call__(self, b_y_true, b_y_pred):
         # y_true contains key 'segmentation' with shape [B, seq_len, 1]
         # y_pred contains key 'segmentation' with shape [B, seq_len, 1]
         
-        y_pred = Evaluator.dict_struct_from_torch_to_npy(y_pred)
-        y_true = Evaluator.dict_struct_from_torch_to_npy(y_true)
-        
-        intersection = np.logical_and(y_true['segmentation'], y_pred['segmentation']).sum()
-        union = np.logical_or(y_true['segmentation'], y_pred['segmentation']).sum()
+        for y_true, y_pred, _cls in zip(b_y_true['segmentation'], b_y_pred['segmentation'], b_y_true['class']):
+            intersection = np.logical_and(y_true, y_pred).sum()
+            union = np.logical_or(y_true, y_pred).sum()
 
-        _cls = Evaluator.CLASSES_INV[y_true['class']]
-        self._intersection[_cls] += intersection
-        self._union[_cls] += union
+            _cls = Evaluator.CLASSES_INV[_cls[0]]
+            self._intersection[_cls] += intersection
+            self._union[_cls] += union
         
     def results(self):
         # Calculate Jaccard index for each class
@@ -188,19 +151,19 @@ class SegmentationJaccardIndex(Metric):
         # Create raw DataFrame
         raw = pd.DataFrame({
             'jaccard_index': jaccard_index
-        }, index=Evaluator.CLASSES_INV)
+        }, index=Evaluator.CLASSES_INV, dtype=np.float32)
 
         # Calculate macro-average
         macro_average = pd.DataFrame({
             'jaccard_index': np.nanmean(list(jaccard_index.values()))
-        }, index=['macro-average'])
+        }, index=['macro-average'], dtype=np.float32)
 
         # Calculate micro-average
         total_intersection = np.sum(list(self._intersection.values()))
         total_union = np.sum(list(self._union.values()))
         micro_average = pd.DataFrame({
             'jaccard_index': total_intersection / total_union if total_union != 0 else np.nan
-        }, index=['micro-average'])
+        }, index=['micro-average'], dtype=np.float32)
 
         # Concatenate micro and macro averages
         micro_macro_average = pd.concat([micro_average, macro_average])
@@ -215,7 +178,7 @@ class SegmentationJaccardIndex(Metric):
         return f"{self.name} ({len(self._tp)} batches)"
     
     def __len__(self):
-        return len(self._tp)
+        return self._intersection[next(iter(self._intersection.keys()))]
 
 @finalizing
 class Evaluator:
@@ -275,10 +238,19 @@ class Evaluator:
     # NEW METHODS
     
     @staticmethod
-    def dict_struct_from_torch_to_npy(y: dict):
+    def take_slice_from_dict_struct(y: dict, indices: slice):
+        ret = {}
         for key in y:
-            y[key] = y[key].detach().cpu().numpy()
-        return y
+            ret[key] = y[key][indices]
+        return ret
+    
+    @staticmethod
+    def dict_struct_from_torch_to_npy(y: dict):
+        ret = {}
+        for key in y:
+            ret[key] = y[key].detach().cpu().numpy() if isinstance(y[key], torch.Tensor) else y[key]
+            assert isinstance(ret[key], np.ndarray), f"Expected {key} to be a numpy array, but got {type(ret[key])}"
+        return ret
     
     @staticmethod
     def true_duration_to_sigmoid(y: np.ndarray, fsamp=250) -> np.ndarray:
@@ -302,8 +274,8 @@ class Evaluator:
     
     @staticmethod
     def detections_to_intervals(detections: np.ndarray, seq_len: int, confidence_threshold=1e-6) -> np.ndarray:
-        # Input: [29, 3], 29 for each interval, 3 = confidence, center offset, sigmoided duration
-        # Output: [29, 3], 29 as maximum number of spindles, 3 = start, end, confidence
+        # Input: [30, 3], 30 for each interval, 3 = confidence, center offset, sigmoided duration
+        # Output: [30, 3], 30 as maximum number of spindles, 3 = start, end, confidence
         
         # Convert sigmoided duration to true duration
         output = np.zeros_like(detections)
@@ -357,6 +329,8 @@ class Evaluator:
             intervals = intervals[1:][iou < iou_threshold]
 
         return np.array(selected_intervals)
+    
+    # OLD METHODS
     
     @staticmethod
     def is_array_empty(y: np.ndarray):
@@ -508,24 +482,13 @@ class Evaluator:
     def add_metric(self, name, metric_cls: type[Metric]):
         metric = metric_cls(name)
         self._metrics.append(metric)
+            
+    def batch_evaluate(self, y_true: dict[str, torch.Tensor | np.ndarray], y_pred: dict[str, torch.Tensor | np.ndarray]):
+        y_t = Evaluator.dict_struct_from_torch_to_npy(y_true)
+        y_p = Evaluator.dict_struct_from_torch_to_npy(y_pred)
         
-    def evaluate(self, true_metadata: dict, y_pred: np.ndarray):
-        classes_pred = Evaluator.binary_signal_to_classes(y_pred)
-        classes_true = Evaluator.metadata_to_classes(true_metadata, classes_pred.shape[1])
-            
         for metric in self._metrics:
-            metric(classes_true, classes_pred)
-            
-    def batch_evaluate(self, true_metadata: list[dict], y_pred: torch.Tensor):
-        classes_pred = Evaluator.batch_binary_signal_to_classes(y_pred)
-        classes_true = Evaluator.batch_metadata_to_classes(true_metadata, classes_pred.shape[2])
-            
-        for metric in self._metrics:
-            metric(classes_true, classes_pred)
-            
-    def batch_evaluate_no_conversion(self, y_true: torch.Tensor | np.ndarray, y_pred: torch.Tensor | np.ndarray):
-        for metric in self._metrics:
-            metric(y_true, y_pred)
+            metric(y_t, y_p)
     
     @staticmethod
     def batch_get_classes_true(true_metadata: list[dict], size: int):

@@ -116,7 +116,7 @@ def predict_all(args):
         if len(y_true) > 0:
             y_pred = torch.stack(y_pred)
             y_true = Evaluator.batch_metadata_to_classes(y_true, y_pred.shape[2])
-            evaluator.batch_evaluate_no_conversion(y_true, y_pred)
+            evaluator.batch_evaluate(y_true, y_pred)
             print(evaluator.results())
         
         intervals = Evaluator.batch_model_predictions_to_intervals(

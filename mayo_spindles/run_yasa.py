@@ -36,8 +36,8 @@ def evaluate_yasa(datamodule, sf, evaluator: Evaluator, rel_pow, corr, rms):
         
     micro_macro_df = evaluator.results()['f1'][1]
     
-    # micro_f1 is row 'micro-average' and column 'f-measure'
-    micro_f1 = micro_macro_df.loc['micro-average', 'f-measure']
+    # micro_f1 is row 'micro-average' and column 'f_measure'
+    micro_f1 = micro_macro_df.loc['micro-average', 'f_measure']
     evaluator.reset()
     
     return micro_f1

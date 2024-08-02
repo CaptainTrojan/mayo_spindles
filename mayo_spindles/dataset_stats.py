@@ -3,11 +3,11 @@ from tqdm import tqdm
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-dataset = HDF5Dataset('hdf5_data', split='train')
+dataset = HDF5Dataset('hdf5_data', split='train', augmentations_size=2000)
 spindle_lengths = []
 spindle_counts = []
 for (X, y) in tqdm(dataset, desc='Iterating over dataset', total=len(dataset)):
-    dets = y['detections']
+    dets = y['detection']
     dets = dets[dets[:, 0] == 1]
     spindle_counts.append(len(dets))
     spindle_lengths.extend(dets[:, 2])

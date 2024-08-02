@@ -41,7 +41,7 @@ def test_evaluate_arrays(evaluator):
     expected_recall = 3 / 4
     expected_f_measure = 2 * expected_precision * expected_recall / (expected_precision + expected_recall)
     
-    evaluator.add_metric("F-Measure", Evaluator.interval_f_measure)
+    evaluator.add_metric("f_measure", Evaluator.interval_f_measure)
     evaluator.evaluate(y_true, y_pred)
     result = evaluator.results()
     pred_p, pred_r, pred_f1 = result.iloc[0]
@@ -50,7 +50,7 @@ def test_evaluate_arrays(evaluator):
     assert pred_f1 == pytest.approx(expected_f_measure, rel=1e-4)
 
 def test_reset(evaluator):
-    evaluator.add_metric("F-Measure", Evaluator.interval_f_measure)
+    evaluator.add_metric("f_measure", Evaluator.interval_f_measure)
     evaluator.evaluate_arrays(np.array([0, 1, 1, 0, 1, 0, 0, 1], dtype=np.uint8),
                               np.array([0, 0, 1, 1, 1, 0, 1, 1], dtype=np.uint8))
     evaluator.reset()

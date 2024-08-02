@@ -28,7 +28,7 @@ class H5Visualizer:
         fig = plt.figure(figsize=(8, total_number_of_plots + 2))
         
         # First, evaluate the metrics (expand batch dim for y_true and y_pred)
-        self.evaluator.batch_evaluate_no_conversion(np.expand_dims(y_true, axis=0), np.expand_dims(y_pred, axis=0))
+        self.evaluator.batch_evaluate(np.expand_dims(y_true, axis=0), np.expand_dims(y_pred, axis=0))
         results = self.evaluator.results()['aucpr']
         for i in range(len(results)):
             results[i] = results[i].round(3)

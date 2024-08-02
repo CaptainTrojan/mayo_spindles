@@ -751,7 +751,7 @@ class HDF5Dataset(Dataset):
         'spectrogram': [30, seq_len] - scalogram of the raw signal
     Y: 
         'segmentation': [seq_len, 1] - binary spindle segmentation map, 0 for non-spindle, 1 for spindle
-        'detections': [29, 3] - spindle detections, where each row is [spindle existence, center offset, spindle duration (real)]
+        'detection': [29, 3] - spindle detections, where each row is [spindle existence, center offset, spindle duration (real)]
         'class': [] - class label for the spindles corresponding to the channel from which the raw signal was taken
     """
     def __init__(self, data_dir, split, augmentations_size=0):
@@ -778,6 +778,9 @@ class HDF5Dataset(Dataset):
         return self.len if not self.augmentations else self.augmentations_size
 
     def __getitem__(self, index):
+        if index >= len(self):
+            raise IndexError(f"Index {index} out of bounds for dataset of length {len(self)}")
+        
         if self.file is None:
             self.file = h5py.File(self.file_path, 'r')
             
@@ -838,8 +841,8 @@ class HDF5Dataset(Dataset):
         
         for key in x.keys():
             assert x[key].shape[1] == self.seq_len, f"Expected {x[key].shape[1]} to be {self.seq_len}"
-        for key in y.keys():
-            assert y[key].shape[1] == self.seq_len, f"Expected {y[key].shape[1]} to be {self.seq_len}"
+        # for key in y.keys(): No longer true because of detections array
+        #     assert y[key].shape[0] == self.seq_len, f"Expected {y[key].shape[0]} to be {self.seq_len}"
             
         y['class'] = torch.tensor([Y_class])
 
@@ -852,14 +855,14 @@ class HDF5Dataset(Dataset):
     def __convert_to_scalogram(self, data: np.ndarray):
         # Data shape = (num_channels, seq_len), which should be (4, 7500)
         # Fsamp = 250 Hz
-        coeffs, frequencies = pywt.cwt(data, np.arange(1, 31), 'morl', sampling_period=1/250)
+        coeffs, frequencies = pywt.cwt(data, np.arange(6, 21), 'morl', sampling_period=1/250)
         return np.abs(coeffs)
     
     def __segmentation_to_detections(self, y: np.ndarray) -> np.ndarray:
         # Input [seq_len, 1], contains 0s and 1s representing the ground truth spindles
         # Output [29, 3], where 3 is 1) spindle existence (0/1), 2) center offset w.r.t. interval center (0-1), 3) spindle duration (0-1)
         seq_len = y.shape[0]
-        num_segments = 29
+        num_segments = 30
         segment_length = seq_len / num_segments
         
         # Initialize the output array
@@ -912,7 +915,7 @@ class HDF5Dataset(Dataset):
         # Convert segmentation to detections
         y_det = self.__segmentation_to_detections(y_seg)
         
-        ret = {'raw_signal': x, 'spectrogram': specgram}, {'segmentation': y_seg, 'detections': y_det, 'class': y_class}
+        ret = {'raw_signal': x, 'spectrogram': specgram}, {'segmentation': y_seg, 'detection': y_det, 'class': y_class}
         
         # Convert to torch tensors
         ret = {k: torch.from_numpy(v) for k, v in ret[0].items()}, {k: torch.from_numpy(v) for k, v in ret[1].items()}

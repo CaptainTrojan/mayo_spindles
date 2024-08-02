@@ -45,6 +45,15 @@
             "args": ["--model", "cdil", "--data", "hdf5_data", "--epochs", "10"]
         },
         {
+            "name": "Training with Profiler",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "cProfile",
+            "args": ["-m", "mayo_spindles.run", "--model", "cdil", "--data", "hdf5_data", "--epochs", "10"],
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
             "name": "Export Dataset",
             "type": "debugpy",
             "request": "launch",
