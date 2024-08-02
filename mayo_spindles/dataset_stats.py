@@ -1,7 +1,12 @@
+import time
 from dataloader import HDF5Dataset
 from tqdm import tqdm
-import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+
+import plotly.graph_objects as go
+
+# Start the timer
+start_time = time.time()
 
 dataset = HDF5Dataset('hdf5_data', split='train', augmentations_size=2000)
 spindle_lengths = []
@@ -39,3 +44,6 @@ fig.update_layout(
 # Show the plot
 fig.show()
 
+# Calculate the elapsed time
+elapsed_time = time.time() - start_time
+print(f"Elapsed time: {elapsed_time} seconds")
