@@ -105,15 +105,32 @@ class Visualizer(QMainWindow):
         # Clear the current figure
         self.canvas.figure.clear()
         
-        axs = self.canvas.figure.subplots(2, 1)
-        self.draw_input(X, axs)
-        self.draw_spindles(X, Y['segmentation'], axs)
+        specgrams = {k: v for k, v in X.items() if 'spectrogram' in k}
+        
+        axs = self.canvas.figure.subplots(1 + len(specgrams), 1)
+        self.draw_input(X['raw_signal'], specgrams, axs)
+        self.draw_spindles(Y['segmentation'], axs)
         
         # Draw the plot
         self.canvas.draw()
+        
+    def draw_input(self, signal, specgrams, axs):
+        # Turn off all paddings and margins
+        for ax in axs:
+            ax.margins(0)
+            ax.axis('off')
+            
+        # Plot the signal
+        signal = signal.flatten().detach().cpu().numpy()
+        axs[0].plot(signal, linewidth=0.5)
+        
+        # Plot the spectrograms
+        for i, (specgram_key, specgram) in enumerate(specgrams.items()):
+            specgram = specgram.detach().cpu().numpy()
+            axs[i + 1].imshow(specgram, aspect='auto', origin='lower', cmap='jet')
 
-    def draw_spindles(self, X, y, axs):
-        y = y[0]
+    def draw_spindles(self, y, axs):
+        y = y.flatten().detach().cpu().numpy()
         starts = np.where(np.diff(y) == 1)[0]
         ends = np.where(np.diff(y) == -1)[0]
         
@@ -126,20 +143,6 @@ class Visualizer(QMainWindow):
         for start, end in zip(starts, ends):
             for i in range(len(axs)):
                 axs[i].axvspan(start, end, color='red', alpha=0.2, label='GT spindle')
-
-    def draw_input(self, elem, axs):
-        # Turn off all paddings and margins
-        for ax in axs:
-            ax.margins(0)
-            ax.axis('off')
-
-        specgram = elem['spectrogram']
-        signal = elem['raw_signal'][0]
-               
-        # Plot the spectrogram
-        axs[1].imshow(specgram, aspect='auto', origin='lower', cmap='jet')
-        # Plot the signal
-        axs[0].plot(signal, linewidth=0.5)
 
     def show_prev(self):
         self.idx = max(self.idx - 1, 0)
@@ -154,8 +157,8 @@ if __name__ == '__main__':
     argparser = argparse.ArgumentParser()
     args = argparser.parse_args()
     
-    dataset = HDF5Dataset('hdf5_data', split='train')
-    print(f"Loaded dataset with {len(dataset)} elements")
+    dataset = HDF5Dataset('hdf5_data', split='train', use_augmentations=True)
+    print(f"Loaded dataset with {len(dataset)} elements ")
     
     app = QApplication(sys.argv)
     font = QFont()
