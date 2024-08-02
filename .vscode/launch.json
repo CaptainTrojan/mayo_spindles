@@ -42,7 +42,7 @@
             "program": "mayo_spindles/run.py",
             "console": "integratedTerminal",
             "justMyCode": false,
-            "args": ["--model", "cdil", "--data", "hdf5_data", "--epochs", "300", "--batch_size", "32", "--lr", "0.001"]
+            "args": ["--model", "cdil", "--data", "hdf5_data", "--epochs", "300", "--batch_size", "16", "--lr", "0.001"]
         },
         {
             "name": "Training (smoke)",
@@ -63,10 +63,10 @@
             "args": ["--data_dir", "data", "--output_dir", "hdf5_data", "--duration", "30"]
         },
         {
-            "name": "H5 Visualizer",
+            "name": "Test training visualizer",
             "type": "debugpy",
             "request": "launch",
-            "program": "mayo_spindles\\test_h5py_visualizer.py",
+            "program": "mayo_spindles\\training_visualizer.py",
             "console": "integratedTerminal",
             "justMyCode": false,
         },
