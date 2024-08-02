@@ -1,10 +1,10 @@
 import os
 import h5py
 import numpy as np
-from dataloader import SpindleDataModule
+from mef_dataloader import SpindleDataModule
 import argparse
 from tqdm import tqdm
-from evaluator import Evaluator
+import pywt
 
 def artefactness(signal):
     signal_median = np.median(np.abs(signal))
@@ -26,9 +26,14 @@ dl = dm.train_dataloader()
 x_data = []
 y_data = []
 y_class = []
+scalograms = []
 
 artefacted_count = 0
 y_lens = []
+
+def __convert_to_scalogram(data: np.ndarray):
+    coeffs, frequencies = pywt.cwt(data, np.geomspace(150, 350, num=15), 'shan6-13', sampling_period=1/250)
+    return np.abs(coeffs)
 
 # Iterate over DataLoader and store data
 for batch in tqdm(dl, desc='Exporting data'):
@@ -51,12 +56,17 @@ for batch in tqdm(dl, desc='Exporting data'):
             y_class.append(label_class)
             y_lens.append(spindle_timesteps)
             
+            scalogram = __convert_to_scalogram(x_single_channel)
+            scalograms.append(scalogram)
+            
 # Concatenate data
 x_data = np.stack(x_data, axis=0)
 y_data = np.stack(y_data, axis=0)
 y_class_data = np.array(y_class)
+scalogram_data = np.stack(scalograms, axis=0)
 
 print(f'x_data shape: {x_data.shape}')
+print(f'scalogram_data shape: {scalogram_data.shape}')
 print(f'y_data shape: {y_data.shape}')
 print(f"Rejected {artefacted_count} artefacted samples ({artefacted_count / len(y_class) * 100:.2f}%)")
 
@@ -110,5 +120,7 @@ os.makedirs(args.output_dir, exist_ok=True)
 with h5py.File(f'{args.output_dir}/data.hdf5', 'w') as hf:
     # Create datasets
     hf.create_dataset('x', data=x_data, chunks=(1, x_data.shape[1]))
+    hf.create_dataset('scalogram', data=scalogram_data, chunks=(1, scalogram_data.shape[1], scalogram_data.shape[2]))
     hf.create_dataset('y', data=y_data, chunks=(1, y_data.shape[1]))
     hf.create_dataset('y_class', data=y_class_data, chunks=(1, ))
+    
