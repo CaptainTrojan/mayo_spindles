@@ -6,6 +6,7 @@ import torch
 np.seterr(divide='ignore', invalid='ignore')
 from sklearn.metrics import average_precision_score, roc_auc_score
 from collections import defaultdict
+from copy import deepcopy
 
 
 def finalizing(cls):
@@ -487,6 +488,8 @@ class Evaluator:
         self._metrics.append(metric)
             
     def batch_evaluate(self, y_true: dict[str, torch.Tensor | np.ndarray], y_pred: dict[str, torch.Tensor | np.ndarray]):
+        y_pred = deepcopy(y_pred)
+        y_pred['detection'] = y_pred['detection'].sigmoid()
         y_t = Evaluator.dict_struct_from_torch_to_npy(y_true)
         y_p = Evaluator.dict_struct_from_torch_to_npy(y_pred)
         
