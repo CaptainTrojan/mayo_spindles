@@ -158,7 +158,8 @@ class SpindleDetector(pl.LightningModule):
     def set_wandb_logger(self, wandb_logger):
         # Add the wandb logger
         self.wandb_logger = wandb_logger
-        self.wandb_logger.watch(self.model, log_freq=1)
+        if self.wandb_logger is not None:
+            self.wandb_logger.watch(self.model, log_freq=1)
         
     def __deepcopy__(self, memo):    
         # Create a new instance of this class with the same arguments
@@ -248,7 +249,7 @@ class SpindleDetector(pl.LightningModule):
             results[i].insert(0, 'row', results[i].index)
         
         # Log the tables to the logger
-        if self.report_full_stats:
+        if self.report_full_stats and self.wandb_logger is not None:
             print("Logging result tables to wandb...")
             # Build the tables
             full_table = wandb.Table(dataframe=results[0])
@@ -277,7 +278,7 @@ class SpindleDetector(pl.LightningModule):
         self.log_metric_results('det_f1', results)
         self.log_metric_results('seg_iou', results)
         
-        if self.report_full_stats:            
+        if self.report_full_stats and self.wandb_logger is not None:            
             print("Logging predictions to wandb...")
             plots = []
             for i, (x, y, y_hat) in enumerate(self.val_samples):
