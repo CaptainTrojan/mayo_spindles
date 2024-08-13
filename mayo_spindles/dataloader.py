@@ -21,14 +21,16 @@ class HDF5Dataset(Dataset):
         'detection': [29, 3] - spindle detections, where each row is [spindle existence, center offset, spindle duration (real)]
         'class': [] - class label for the spindles corresponding to the channel from which the raw signal was taken
     """
-    def __init__(self, data_dir, split, use_augmentations=False):
+    def __init__(self, data_dir, split, use_augmentations=False, raw_signal_only=False):
         super().__init__()
+        self.return_raw_signal = raw_signal_only
         self.file_path = os.path.join(data_dir, 'data.hdf5')
         self.splits_path = os.path.join(data_dir, 'splits.json')
         with open(self.splits_path, 'r') as f:
             self.splits = json.load(f)
             
         assert split in self.splits, f"Split {split} not found in {self.splits_path}"
+        assert not use_augmentations or not raw_signal_only, "Cannot use augmentations with raw signal only"
         
         self.file = None
         self.augmentations = use_augmentations
@@ -38,6 +40,12 @@ class HDF5Dataset(Dataset):
         with h5py.File(self.file_path, 'r') as hf:
             self.seq_len = hf['x'].shape[1]
             assert hf['y'].shape[1] == self.seq_len, f"Expected {hf['y'].shape[1]} to be {self.seq_len}"
+            
+    def set_raw_signal_only(self, raw_signal_only):
+        self.return_raw_signal = raw_signal_only
+        
+    def is_raw_signal_only(self):
+        return self.return_raw_signal
 
     def __len__(self):
         return len(self.indices)
@@ -63,46 +71,10 @@ class HDF5Dataset(Dataset):
         return np.abs(coeffs)
         # return coeffs
     
-    def __segmentation_to_detections(self, y: np.ndarray) -> np.ndarray:
-        # Input [seq_len, 1], contains 0s and 1s representing the ground truth spindles
-        # Output [30, 3], where 3 is 1) spindle existence (0/1), 2) center offset w.r.t. interval center (0-1), 3) spindle duration (0-1)
-        seq_len = y.shape[0]
-        num_segments = 30
-        segment_length = seq_len / num_segments
-        
-        # Initialize the output array
-        detections = np.zeros((num_segments, 3), dtype=np.float32)
-        
-        # Find the start and end of each spindle
-        starts = np.where(np.diff(y[:,0]) == 1)[0]
-        ends = np.where(np.diff(y[:, 0]) == -1)[0]
-        
-        if y[0, 0] == 1:
-            starts = np.concatenate([[0], starts])
-        if y[-1, 0] == 1:
-            ends = np.concatenate([ends, [seq_len - 1]])
-            
-        assert len(starts) == len(ends), f"Number of starts and ends do not match. Starts: {len(starts)}, Ends: {len(ends)}"
-    
-        # Iterate over each spindle
-        for start, end in zip(starts, ends):
-            center = (start + end) // 2
-            segment_id = int(center / segment_length)
-            
-            # Mark spindle
-            detections[segment_id, 0] = 1
-            # Calculate center offset
-            offset = (center % segment_length) / segment_length
-            detections[segment_id, 1] = offset
-            # Calculate duration
-            true_duration = end - start
-            detections[segment_id, 2] = Evaluator.true_duration_to_sigmoid(true_duration)
-        
-        return detections
-    
     def __load_one_xy_pair(self, index, *, augmented):
-        x = self.__load_one_element('x', index, normalize=True)
-        specgram = self.__load_one_element('scalogram', index, normalize=True)
+        x = self.__load_one_element('x', index, normalize=not self.return_raw_signal)
+        if not self.return_raw_signal:
+            specgram = self.__load_one_element('scalogram', index, normalize=True)
         y = self.__load_one_element('y', index)
         y_class = self.__load_one_element('y_class', index)
         
@@ -117,9 +89,14 @@ class HDF5Dataset(Dataset):
             # Add a bit of Gaussian noise
             # x += np.random.normal(0, 0.01, x.shape)
             # specgram += np.random.normal(0, 0.01, specgram.shape)
-        
-        # Add extra dim to x and y
+            
+        # Add extra dim to x
         x = np.expand_dims(x, axis=0)
+        inputs = {'raw_signal': x}
+        if not self.return_raw_signal:
+            inputs['spectrogram'] = specgram
+        
+        # Add extra dim to y
         y = np.expand_dims(y, axis=0)
         y_class = np.expand_dims(y_class, axis=0)
         
@@ -127,9 +104,12 @@ class HDF5Dataset(Dataset):
         y_seg = np.transpose(y, (1, 0))
         
         # Convert segmentation to detections
-        y_det = self.__segmentation_to_detections(y_seg)
+        y_det = Evaluator.segmentation_to_detections(y_seg)
+        # y_det = self.__segmentation_to_detections(y_seg)
         
-        ret = {'raw_signal': x, 'spectrogram': specgram}, {'segmentation': y_seg, 'detection': y_det, 'class': y_class}
+        outputs = {'segmentation': y_seg, 'detection': y_det, 'class': y_class}
+        
+        ret = inputs, outputs
         
         # Convert to torch tensors
         ret = {k: torch.as_tensor(v) for k, v in ret[0].items()}, {k: torch.as_tensor(v) for k, v in ret[1].items()}
@@ -168,6 +148,26 @@ class HDF5Dataset(Dataset):
             Y[key] = torch.stack(Y[key], dim=0)
         
         return X, Y
+    
+    @property
+    def edf_signal_header(self) -> list[dict]:
+        ret = {
+            'label': 'iEEG',
+            'dimension': 'uV',
+            'sample_frequency': 250,
+        }
+        
+        # Find physical min and max (from all data)
+        min_val, max_val = np.inf, -np.inf
+        with h5py.File(self.file_path, 'r') as hf:
+            for idx in self.indices:
+                x = hf['x'][idx]
+                min_val = min(min_val, np.min(x))
+                max_val = max(max_val, np.max(x))
+        
+        ret['physical_min'] = min_val
+        ret['physical_max'] = max_val
+        return [ret]
 
 
 class HDF5SpindleDataModule(LightningDataModule):
@@ -180,6 +180,15 @@ class HDF5SpindleDataModule(LightningDataModule):
         self.train_dataset = HDF5Dataset(self.data_dir, 'train', use_augmentations=True)
         self.val_dataset = HDF5Dataset(self.data_dir, 'val')
         self.test_dataset = HDF5Dataset(self.data_dir, 'test')
+        
+    def set_raw_signal_only(self, raw_signal_only):
+        self.train_dataset.set_raw_signal_only(raw_signal_only)
+        self.val_dataset.set_raw_signal_only(raw_signal_only)
+        self.test_dataset.set_raw_signal_only(raw_signal_only)
+        
+    def is_raw_signal_only(self):
+        assert self.train_dataset.is_raw_signal_only() == self.val_dataset.is_raw_signal_only() == self.test_dataset.is_raw_signal_only()
+        return self.train_dataset.is_raw_signal_only()
 
     def setup(self, stage=None):
         None
