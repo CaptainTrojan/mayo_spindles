@@ -2,24 +2,48 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import matplotlib.patches as patches
-
+from datetime import datetime
 from evaluator import Evaluator
+import os
+from tqdm import tqdm
+import shutil
 
 
-class H5Visualizer:
+class PredictionVisualizer:
     def __init__(self) -> None:
         self.evaluator = Evaluator()
         self.evaluator.add_metric('det_f1', Evaluator.DETECTION_F_MEASURE)
         self.evaluator.add_metric('seg_iou', Evaluator.SEGMENTATION_JACCARD_INDEX)
         
-    def generate_prediction_plot(self, x, y_true, y_pred):
-        # First, evaluate the metrics (expand batch dim for y_true and y_pred)
-        self.evaluator.batch_evaluate(y_true, y_pred)
+    def generate_prediction_plot_directory(self, name, predictions, should_preprocess_preds=True):
+        x_all, y_true_all, y_pred_all = predictions
+        full_name = f"predictions_{name}"
+        
+        if os.path.exists(full_name):
+            # Delete previous contents
+            shutil.rmtree(full_name)
+        
+        os.makedirs(full_name)
+        
+        batch_size = next(iter(x_all.values())).shape[0]
+        
+        for i in tqdm(range(batch_size), desc='Generating plots'):
+            x = Evaluator.take_slice_from_dict_struct(x_all, slice(i, i+1))
+            y_true = Evaluator.take_slice_from_dict_struct(y_true_all, slice(i, i+1))
+            y_pred = Evaluator.take_slice_from_dict_struct(y_pred_all, slice(i, i+1))
+            
+            fig = self.generate_prediction_plot(x, y_true, y_pred, should_preprocess_preds)
+            fig.savefig(f"{full_name}/{i}.png")
+            plt.close(fig)
+        
+    def generate_prediction_plot(self, x, y_true, y_pred, should_preprocess_preds=True):
+        # First, evaluate the metrics 
+        self.evaluator.batch_evaluate(y_true, y_pred, should_preprocess_preds)
         results = self.evaluator.results()
         self.evaluator.reset()
         
         x = Evaluator.dict_struct_from_torch_to_npy(x)
-        y_true, y_pred = Evaluator.preprocess_y(y_true, y_pred)
+        y_true, y_pred = Evaluator.preprocess_y(y_true, y_pred, should_preprocess_preds)
         _cls = Evaluator.CLASSES_INV[y_true['class'].item()]
         
         fig = plt.figure(figsize=(8, 10))
@@ -41,28 +65,37 @@ class H5Visualizer:
 
         # Add the spectrogram
         ax2 = fig.add_subplot(sub_grid_1[1, 0], sharex=ax1)
-        ax2.imshow(x['spectrogram'][0], aspect='auto', cmap='jet')
-        ax2.set_xticks(np.arange(0, 7501, 250))
-        ax2.set_xticklabels(np.arange(0, 31, 1))
-        ax2.set_xlabel('Time (s)')
-        freqs = [17.87037037037037,
-                 17.007144863986078,
-                 16.18561733360499,
-                 15.403773564876545,
-                 14.659696639766123,
-                 13.951562236671492,
-                 13.277634157566247,
-                 12.636260071204044,
-                 12.025867461946518,
-                 11.444959774282614,
-                 10.892112743586283,
-                 10.36597090411627,
-                 9.865244265696568,
-                 9.388705150929226,
-                 8.935185185185185]
-        freqs = [f'{f:.2f}' for f in freqs][::3]
-        ax2.set_yticks(np.arange(0, 15, 3))
-        ax2.set_yticklabels(freqs)
+
+        if 'spectrogram' in x:
+            ax2.imshow(x['spectrogram'][0], aspect='auto', cmap='jet')
+            ax2.set_xticks(np.arange(0, 7501, 250))
+            ax2.set_xticklabels(np.arange(0, 31, 1))
+            ax2.set_xlabel('Time (s)')
+            freqs = [17.87037037037037,
+                    17.007144863986078,
+                    16.18561733360499,
+                    15.403773564876545,
+                    14.659696639766123,
+                    13.951562236671492,
+                    13.277634157566247,
+                    12.636260071204044,
+                    12.025867461946518,
+                    11.444959774282614,
+                    10.892112743586283,
+                    10.36597090411627,
+                    9.865244265696568,
+                    9.388705150929226,
+                    8.935185185185185]
+            freqs = [f'{f:.2f}' for f in freqs][::3]
+            ax2.set_yticks(np.arange(0, 15, 3))
+            ax2.set_yticklabels(freqs)
+        else:
+            # Draw a cross across the whole plot
+            ax2.plot([0, 7500], [0, 15], color='black', linewidth=0.5)
+            ax2.plot([0, 7500], [15, 0], color='black', linewidth=0.5)
+            ax2.set_xticks([])
+            ax2.set_yticks([])
+            ax2.set_xlabel('Spectrogram not available')
         
         # Add outputs
         sub_grid_2 = grid[1, 0].subgridspec(2, 1)
@@ -148,6 +181,6 @@ if __name__ == '__main__':
     y_hat['detection'] = (y_hat['detection'] - 0.5) * 5
     y_hat['segmentation'] = (y_hat['segmentation'] - 0.5) * 5
     
-    visualizer = H5Visualizer()
+    visualizer = PredictionVisualizer()
     fig = visualizer.generate_prediction_plot(x, y, y_hat)
     plt.show()
