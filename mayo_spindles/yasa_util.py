@@ -4,6 +4,8 @@ import numpy as np
 import sys
 import os
 
+from evaluator import Evaluator
+
 class OutputSuppressor:
     def __init__(self):
         self._stdout = None
@@ -22,27 +24,47 @@ class OutputSuppressor:
         sys.stderr = self._stderr
 
 
-def yasa_predict(signals, metadata, sf, rel_pow, corr, rms):
-    if isinstance(signals, np.ndarray):
+def yasa_predict(signals_batch, sf, rel_pow=0.2, corr=0.65, rms=1.5):
+    """
+    Predict spindles using YASA.
+    
+    Signals batch shape: [B, 1, seq_len]
+    
+    Output: dict, key 'detections' with shape [B, 30, 3], where '30' is the amount of 1s intervals in the signal, and 3 is 
+    1) confidence, 2) center offset, 3) duration
+    """
+    if isinstance(signals_batch, np.ndarray):
         pass
     else:
-        signals = signals[0].numpy()  # from tensor batch
+        signals_batch = signals_batch.detach().cpu().numpy()
         
-    with OutputSuppressor():
-        sp = yasa.spindles_detect(
-            signals, sf, ch_names=metadata['channel_names'], verbose='CRITICAL',
-            multi_only=False,
-            remove_outliers=False,
-            thresh={"rel_pow": rel_pow, "corr": corr, "rms": rms}
-        )
+    segmentations = []
+    detections = []
         
-    y_pred = np.zeros_like(signals)
-
-    if sp is not None:
-        all_spindles = sp.summary()
-        for start_time, end_time, channel in all_spindles[['Start', 'End', 'IdxChannel']].values:
-            start_idx = int(start_time * sf)
-            end_idx = int(end_time * sf)
-            y_pred[int(channel), start_idx:end_idx] = 1
+    for signal in signals_batch:
+        assert signal.shape[0] == 1, f"Signal has shape {signal.shape}, but it should be 1D"
+        signal = signal.squeeze()
+        
+        with OutputSuppressor():
+            sp = yasa.spindles_detect(
+                signal, sf, verbose='CRITICAL',
+                multi_only=False,
+                remove_outliers=False,
+                thresh={"rel_pow": rel_pow, "corr": corr, "rms": rms}
+            )
             
-    return y_pred
+        seg = np.zeros((7500, 1), dtype=np.float32)
+
+        if sp is not None:
+            all_spindles = sp.summary()
+            for start_time, end_time in all_spindles[['Start', 'End']].values:
+                start_idx = int(start_time * sf)
+                end_idx = int(end_time * sf)
+                seg[start_idx:end_idx, 0] = 1
+            
+        segmentations.append(seg)
+        detections.append(Evaluator.segmentation_to_detections(seg))
+            
+    segmentations = np.array(segmentations)
+    detections = np.array(detections)
+    return {'detection': detections, 'segmentation': segmentations}
