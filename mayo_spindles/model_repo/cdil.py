@@ -96,7 +96,7 @@ class ConvPart(nn.Module):
             if i < (num_layer - 3):
                 layers += [Block(model, this_in, this_out, ks, this_padding, this_dilation, False)]
             else:
-                layers += [Block(model, this_in, this_out, ks, this_padding, this_dilation, True)]
+                layers += [Block(model, this_in, this_out, ks, this_padding, this_dilation, False)]  # TODO test if deform_conv is useful at all
         self.conv_net = nn.Sequential(*layers)
 
     def forward(self, x):
