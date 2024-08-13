@@ -42,7 +42,7 @@
             "program": "mayo_spindles/run.py",
             "console": "integratedTerminal",
             "justMyCode": false,
-            "args": ["--model", "cdil", "--data", "hdf5_data", "--epochs", "300", "--batch_size", "16", "--lr", "0.001"]
+            "args": ["--model", "cdil", "--data", "hdf5_data", "--epochs", "300", "--batch_size", "16"]
         },
         {
             "name": "Training (smoke)",
