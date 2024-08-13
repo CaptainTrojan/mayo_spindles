@@ -5,12 +5,15 @@ import torch
 import yaml
 from model_repo.collection import ModelRepository
 from dataloader import HDF5SpindleDataModule
+from prediction_visualizer import PredictionVisualizer
 from lightningmodel import SpindleDetector
 import pytorch_lightning as pl
 from pytorch_lightning.tuner.tuning import Tuner
 from pytorch_lightning.callbacks import StochasticWeightAveraging, ModelCheckpoint, EarlyStopping, LearningRateMonitor
 from pytorch_lightning.loggers import WandbLogger
 import wandb
+from infer import Inferer
+
 
 def str2bool(v):
     if isinstance(v, bool):
@@ -55,7 +58,46 @@ if __name__ == '__main__':
         'share_bottleneck': args.share_bottleneck,
     }
     model = SpindleDetector(model_name, model_config, detector_config, metric, mode)
-    # model.to_onnx("export_model.onnx")  TODO make CDIL onnx-compatible
+    
+    # Test inference
+    inferer = Inferer(data_module)
+    visualizer = PredictionVisualizer()
+    # res = inferer.infer(model, 'val', max_elems=5)
+    # eval_res = inferer.evaluate(res)
+    # print("PyTorch evaluation results:")
+    # print(eval_res)
+    
+    # SUMO
+    predictions = inferer.infer('sumo', 'val')
+    eval_res = inferer.evaluate(predictions)
+    print(eval_res)
+    visualizer.generate_prediction_plot_directory('sumo', predictions, False)
+    
+    # A7
+    # predictions = inferer.infer('a7', 'val')
+    # eval_res = inferer.evaluate(predictions)
+    # print(eval_res)
+    # visualizer.generate_prediction_plot_directory('a7', predictions, False)
+    
+    # # YASA
+    # predictions = inferer.infer('yasa', 'val')
+    # eval_res = inferer.evaluate(predictions, should_preprocess_preds=False)
+    # print(eval_res)
+    # visualizer.generate_prediction_plot_directory('yasa', predictions, False)
+    # exit(0)
+    
+    torch.compile(model)
+    torch.onnx.dynamo_export(model, 'test.onnx', input_sample=model.example_input_array)
+    import onnxruntime as ort
+    onnx_model = ort.InferenceSession("test.onnx")
+    predictions = inferer.infer(onnx_model, 'val', max_elems=5)
+    eval_res = inferer.evaluate(predictions)
+    print("ONNX evaluation results:")
+    print(eval_res)
+    exit(0)
+    
+    
+    # model.to_onnx("export_model.onnx")  #TODO make CDIL onnx-compatible
     
     # Sanity check that the model works
     # random_x, random_y = next(iter(data_module.train_dataloader()))
@@ -75,7 +117,7 @@ if __name__ == '__main__':
     swa_callback = StochasticWeightAveraging(swa_lrs=1e-2)
     early_stopping_callback = EarlyStopping(
         monitor=f'{metric}',
-        patience=30,
+        patience=60,
         mode=mode,
     )
     checkpoint_callback = ModelCheckpoint(
@@ -89,13 +131,13 @@ if __name__ == '__main__':
 
     trainer = pl.Trainer(
         accelerator='gpu',
-        max_epochs=args.epochs if not args.smoke else 3,
-        enable_checkpointing=True,
+        max_epochs=args.epochs if not args.smoke else 1,
+        enable_checkpointing=not args.smoke,
         callbacks=[swa_callback, checkpoint_callback, early_stopping_callback, lr_monitor],
         logger=wandb_logger,
         log_every_n_steps=10,
         enable_progress_bar=True,
-        profiler='simple' if args.smoke else None,
+        # profiler='simple' if args.smoke else None,
     )
     
     tuner = Tuner(trainer)
@@ -107,7 +149,7 @@ if __name__ == '__main__':
     else:
         # Use the Learning Rate Finder
         data_module.batch_size = 32
-        lr_finder = tuner.lr_find(model, datamodule=data_module, min_lr=1e-6, max_lr=5e-1, num_training=50)
+        lr_finder = tuner.lr_find(model, datamodule=data_module)
         # Plot learning rate
         fig = lr_finder.plot(suggest=True)
         fig.savefig("lr_finder.png")
@@ -118,7 +160,7 @@ if __name__ == '__main__':
     if args.batch_size is not None:
         data_module.batch_size = args.batch_size
     elif args.smoke:
-        data_module.batch_size = 32
+        data_module.batch_size = 16
     else:
         new_batch_size = tuner.scale_batch_size(model, datamodule=data_module, mode='power', max_trials=6, steps_per_trial=5)
         new_batch_size = int(new_batch_size * 0.75)  # Reduce batch size a bit to be safe
@@ -144,3 +186,16 @@ if __name__ == '__main__':
     # Validate the best version
     model.report_full_stats = True
     trainer.validate(model, data_module, ckpt_path='best')
+    
+    # Finally, export the model to ONNX
+    # model = SpindleDetector.load_from_checkpoint(
+    #     checkpoint_callback.best_model_path,
+    #     model_name=model_name,
+    #     model_config=model_config,
+    #     detector_config=detector_config,
+    #     metric=metric,
+    #     mode=mode
+    # )  
+    # score = checkpoint_callback.best_model_score.item()
+    # export_path = f"{args.checkpoint_path}/sd-{metric}-{score:.5f}.onnx"
+    # model.to_onnx(export_path)
