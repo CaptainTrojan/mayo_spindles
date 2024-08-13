@@ -3,7 +3,7 @@ import pytorch_lightning as pl
 import torch
 import wandb
 
-from training_visualizer import H5Visualizer
+from prediction_visualizer import PredictionVisualizer
 from evaluator import Evaluator
 
 from model_repo.collection import ModelRepository
@@ -111,9 +111,8 @@ class EfficientIntervalHead(torch.nn.Module):
             segmentation = self.segmentation_head(self.segmentation_neck(bottleneck_segmentation).transpose(1, 2))
             
         # Pad lost timesteps to segmentation with -1e9
-        if segmentation.shape[1] < x.shape[2]:
-            pad = torch.ones(x.shape[0], x.shape[2] - segmentation.shape[1], 1, device=segmentation.device) * -1e9
-            segmentation = torch.cat([segmentation, pad], dim=1)
+        pad = torch.ones(x.shape[0], x.shape[2] - segmentation.shape[1], 1, device=segmentation.device) * -1e9
+        segmentation = torch.cat([segmentation, pad], dim=1)
         
         return {'detection': detection, 'segmentation': segmentation}
         
@@ -150,11 +149,14 @@ class SpindleDetector(pl.LightningModule):
         
         self.val_samples = []
         self.val_samples_target_amount = 3
-        self.visualizer = H5Visualizer()
+        self.visualizer = PredictionVisualizer()
         
         self.report_full_stats = False
         self.wandb_logger = None
-        self.example_input_array = {
+        
+    @property
+    def example_input_array(self):
+        return {
             "x": {
                 'raw_signal': torch.randn(1, 1, 7500),
                 'spectrogram': torch.randn(1, 15, 7500),
@@ -306,12 +308,10 @@ class SpindleDetector(pl.LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             optimizer, 
-            mode=self.mode,
-            patience=3,
-            factor=0.5,
-            verbose=True
+            T_max=10,
+            eta_min=1e-6,
         )
         return {
             'optimizer': optimizer,
