@@ -313,6 +313,48 @@ class Evaluator:
         return output
     
     @staticmethod
+    def segmentation_to_detections(segmentation: np.ndarray) -> np.ndarray:
+        # Input [seq_len, 1], contains 0s and 1s representing the ground truth spindles
+        # Output [30, 3], where 3 is 1) spindle existence (0/1), 2) center offset w.r.t. interval center (0-1), 3) spindle duration (0-1)
+        
+        assert len(segmentation.shape) == 2, f"Expected segmentation to be 2D, but got {segmentation.shape}"
+        assert segmentation.shape[1] == 1, f"Expected segmentation to have 1 channel, but got {segmentation.shape[1]}"
+        
+        seq_len = segmentation.shape[0]
+        num_segments = 30
+        segment_length = seq_len / num_segments
+        
+        # Initialize the output array
+        detections = np.zeros((num_segments, 3), dtype=np.float32)
+        
+        # Find the start and end of each spindle
+        starts = np.where(np.diff(segmentation[:,0]) == 1)[0]
+        ends = np.where(np.diff(segmentation[:, 0]) == -1)[0]
+        
+        if segmentation[0, 0] == 1:
+            starts = np.concatenate([[0], starts])
+        if segmentation[-1, 0] == 1:
+            ends = np.concatenate([ends, [seq_len - 1]])
+            
+        assert len(starts) == len(ends), f"Number of starts and ends do not match. Starts: {len(starts)}, Ends: {len(ends)}"
+    
+        # Iterate over each spindle
+        for start, end in zip(starts, ends):
+            center = (start + end) // 2
+            segment_id = int(center / segment_length)
+            
+            # Mark spindle
+            detections[segment_id, 0] = 1
+            # Calculate center offset
+            offset = (center % segment_length) / segment_length
+            detections[segment_id, 1] = offset
+            # Calculate duration
+            true_duration = end - start
+            detections[segment_id, 2] = Evaluator.true_duration_to_sigmoid(true_duration)
+        
+        return detections
+    
+    @staticmethod
     def intervals_nms(intervals: np.ndarray, iou_threshold=1.0) -> np.ndarray:
         """
         Perform non-maximum suppression on intervals.
@@ -345,7 +387,88 @@ class Evaluator:
             # Keep intervals with IoU less than the threshold
             intervals = intervals[1:][iou < iou_threshold]
 
-        return np.array(selected_intervals)
+        return np.array(selected_intervals)        
+        
+    def __init__(self):
+        self._metrics = []
+        
+    def add_metric(self, name, metric_cls: type[Metric]):
+        metric = metric_cls(name)
+        self._metrics.append(metric)
+            
+    def batch_evaluate(self,
+                       y_true: dict[str, torch.Tensor | np.ndarray],
+                       y_pred: dict[str, torch.Tensor | np.ndarray],
+                       should_preprocess_predictions: bool = True):
+        y_t, y_p = self.preprocess_y(y_true, y_pred, should_preprocess_predictions)
+        
+        for metric in self._metrics:
+            metric(y_t, y_p)
+            
+    @staticmethod
+    def __sigmoid(x):
+        return 1 / (1 + np.exp(-x))
+
+    @staticmethod
+    def preprocess_y(y_true, y_pred, should_preprocess_predictions=True):
+        y_pred = deepcopy(y_pred)
+        
+        if should_preprocess_predictions:
+            y_true = Evaluator.dict_struct_from_torch_to_npy(y_true)
+            y_pred = Evaluator.dict_struct_from_torch_to_npy(y_pred)
+            
+            # Apply sigmoid to detection
+            y_pred['detection'] = Evaluator.__sigmoid(y_pred['detection'])
+            # Apply sigmoid to segmentation
+            y_pred['segmentation'] = Evaluator.__sigmoid(y_pred['segmentation'])
+
+        return y_true, y_pred
+    
+    @staticmethod
+    def batch_get_classes_true(true_metadata: list[dict], size: int):
+        return Evaluator.batch_metadata_to_classes(true_metadata, size)
+    
+    def evaluate_intervals(self, y_true:list[int, int], y_pred:list[int, int], size):
+        # first convert intervals to binary numpy arrays
+        y_true = self.intervals_to_array(y_true, size)
+        y_pred = self.intervals_to_array(y_pred, size)
+                
+        return self.evaluate(y_true, y_pred)
+        
+    def results(self):
+        # Initialize an empty dict
+        ret = {}
+        
+        # Iterate over each metric in the list
+        for metric in self._metrics:
+            if len(metric) == 0:
+                warnings.warn(f"Metric {metric.name} has no results")
+                continue
+            
+            # Get the results of the metric
+            results = metric.results()
+            
+            # Add the results to the dict
+            ret[metric.name] = results
+
+        return ret
+            
+    def reset(self):
+        for metric in self._metrics:
+            metric.reset()
+            
+    def __str__(self):
+        return str(self.results())
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
     
     # OLD METHODS
     
@@ -491,64 +614,3 @@ class Evaluator:
                         intervals.append((batch_id, start_time, end_time, annotation))
 
         return intervals
-        
-        
-    def __init__(self):
-        self._metrics = []
-        
-    def add_metric(self, name, metric_cls: type[Metric]):
-        metric = metric_cls(name)
-        self._metrics.append(metric)
-            
-    def batch_evaluate(self, y_true: dict[str, torch.Tensor | np.ndarray], y_pred: dict[str, torch.Tensor | np.ndarray]):
-        y_t, y_p = self.preprocess_y(y_true, y_pred)
-        
-        for metric in self._metrics:
-            metric(y_t, y_p)
-
-    @staticmethod
-    def preprocess_y(y_true, y_pred):
-        y_pred = deepcopy(y_pred)
-        # Apply sigmoid to detection
-        y_pred['detection'] = y_pred['detection'].sigmoid()
-        # Apply sigmoid to segmentation
-        y_pred['segmentation'] = y_pred['segmentation'].sigmoid()
-        y_t = Evaluator.dict_struct_from_torch_to_npy(y_true)
-        y_p = Evaluator.dict_struct_from_torch_to_npy(y_pred)
-        return y_t,y_p
-    
-    @staticmethod
-    def batch_get_classes_true(true_metadata: list[dict], size: int):
-        return Evaluator.batch_metadata_to_classes(true_metadata, size)
-    
-    def evaluate_intervals(self, y_true:list[int, int], y_pred:list[int, int], size):
-        # first convert intervals to binary numpy arrays
-        y_true = self.intervals_to_array(y_true, size)
-        y_pred = self.intervals_to_array(y_pred, size)
-                
-        return self.evaluate(y_true, y_pred)
-        
-    def results(self):
-        # Initialize an empty dict
-        ret = {}
-        
-        # Iterate over each metric in the list
-        for metric in self._metrics:
-            if len(metric) == 0:
-                warnings.warn(f"Metric {metric.name} has no results")
-                continue
-            
-            # Get the results of the metric
-            results = metric.results()
-            
-            # Add the results to the dict
-            ret[metric.name] = results
-
-        return ret
-            
-    def reset(self):
-        for metric in self._metrics:
-            metric.reset()
-            
-    def __str__(self):
-        return str(self.results())
