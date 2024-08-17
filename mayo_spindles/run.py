@@ -1,7 +1,8 @@
 import argparse
 import gc
 import torch
-
+import pandas as pd
+import wandb.sync
 import yaml
 from model_repo.collection import ModelRepository
 from dataloader import HDF5SpindleDataModule
@@ -13,7 +14,9 @@ from pytorch_lightning.callbacks import StochasticWeightAveraging, ModelCheckpoi
 from pytorch_lightning.loggers import WandbLogger
 import wandb
 from infer import Inferer
-
+from tex_table_export import get_row_from_results
+import os
+import shutil
 
 def str2bool(v):
     if isinstance(v, bool):
@@ -58,52 +61,9 @@ if __name__ == '__main__':
         'share_bottleneck': args.share_bottleneck,
     }
     model = SpindleDetector(model_name, model_config, detector_config, metric, mode)
-    
-    # Test inference
-    inferer = Inferer(data_module)
-    visualizer = PredictionVisualizer()
-    # res = inferer.infer(model, 'val', max_elems=5)
-    # eval_res = inferer.evaluate(res)
-    # print("PyTorch evaluation results:")
-    # print(eval_res)
-    
-    # SUMO
-    predictions = inferer.infer('sumo', 'val')
-    eval_res = inferer.evaluate(predictions)
-    print(eval_res)
-    visualizer.generate_prediction_plot_directory('sumo', predictions, False)
-    
-    # A7
-    # predictions = inferer.infer('a7', 'val')
-    # eval_res = inferer.evaluate(predictions)
-    # print(eval_res)
-    # visualizer.generate_prediction_plot_directory('a7', predictions, False)
-    
-    # # YASA
-    # predictions = inferer.infer('yasa', 'val')
-    # eval_res = inferer.evaluate(predictions, should_preprocess_preds=False)
-    # print(eval_res)
-    # visualizer.generate_prediction_plot_directory('yasa', predictions, False)
-    # exit(0)
-    
-    torch.compile(model)
-    torch.onnx.dynamo_export(model, 'test.onnx', input_sample=model.example_input_array)
-    import onnxruntime as ort
-    onnx_model = ort.InferenceSession("test.onnx")
-    predictions = inferer.infer(onnx_model, 'val', max_elems=5)
-    eval_res = inferer.evaluate(predictions)
-    print("ONNX evaluation results:")
-    print(eval_res)
-    exit(0)
-    
-    
-    # model.to_onnx("export_model.onnx")  #TODO make CDIL onnx-compatible
-    
-    # Sanity check that the model works
-    # random_x, random_y = next(iter(data_module.train_dataloader()))
-    # out_y = model(random_x)
+        
     if not args.smoke:
-        wandb_logger = WandbLogger(project=args.project_name, save_dir=None, dir=None, offline=False)
+        wandb_logger = WandbLogger(project=args.project_name)
         wandb_logger.log_hyperparams({
             'model': model_name,
             'additional_model_config': model_config,
@@ -117,7 +77,7 @@ if __name__ == '__main__':
     swa_callback = StochasticWeightAveraging(swa_lrs=1e-2)
     early_stopping_callback = EarlyStopping(
         monitor=f'{metric}',
-        patience=60,
+        patience=30,
         mode=mode,
     )
     checkpoint_callback = ModelCheckpoint(
@@ -176,7 +136,7 @@ if __name__ == '__main__':
         del tuner
     torch.cuda.empty_cache()
     gc.collect()
-    
+        
     # Train the model
     trainer.fit(model, data_module)
     
@@ -187,15 +147,55 @@ if __name__ == '__main__':
     model.report_full_stats = True
     trainer.validate(model, data_module, ckpt_path='best')
     
-    # Finally, export the model to ONNX
-    # model = SpindleDetector.load_from_checkpoint(
-    #     checkpoint_callback.best_model_path,
-    #     model_name=model_name,
-    #     model_config=model_config,
-    #     detector_config=detector_config,
-    #     metric=metric,
-    #     mode=mode
-    # )  
-    # score = checkpoint_callback.best_model_score.item()
-    # export_path = f"{args.checkpoint_path}/sd-{metric}-{score:.5f}.onnx"
-    # model.to_onnx(export_path)
+    wandb.unwatch()
+        
+    # Export the model to ONNX
+    model = SpindleDetector.load_from_checkpoint(
+        checkpoint_callback.best_model_path,
+        model_name=model_name,
+        model_config=model_config,
+        detector_config=detector_config,
+        metric=metric,
+        mode=mode
+    )  
+    score = checkpoint_callback.best_model_score.item()
+    export_path = f"{args.checkpoint_path}/sd-{metric}-{score:.5f}.onnx"
+    model.to_onnx(export_path, 
+        input_names=['raw_signal', 'spectrogram'],
+        output_names=['detection', 'segmentation'],
+        dynamic_axes={
+            'raw_signal': {0: 'batch_size'},
+            'spectrogram': {0: 'batch_size'}
+        }
+    )    
+    # Store the ONNX model in W&B
+    wandb.log_model(export_path, name=f'{wandb.run.name}-spindle-detector')
+
+    # Run inference on both validation and test sets.
+    # Validation so we can verify that exporting to ONNX worked correctly.
+    # Test so we can compare the ONNX model to other SotA models.
+    inferer = Inferer(data_module)
+    
+    res, times = inferer.infer(export_path, 'val')
+    evaluation = inferer.evaluate(res)
+    # Log the evaluation results (averages are sufficient)
+    row_data_val = get_row_from_results('onnx', evaluation, times, full=True, include_method=False)
+    # wandb_logger.log_metrics({f'onnx/val/{k}': v for k, v in row_data.items()})
+    row_data_val = {f'onnx/val/{k}': v for k, v in row_data_val.items()}
+    
+    res, times = inferer.infer(export_path, 'test')
+    evaluation = inferer.evaluate(res)
+    # Log the evaluation results (averages are sufficient)
+    row_data_test = get_row_from_results('onnx', evaluation, times, full=True, include_method=False)
+    # wandb_logger.log_metrics({f'onnx/test/{k}': v for k, v in row_data.items()})
+    row_data_test = {f'onnx/test/{k}': v for k, v in row_data_test.items()}
+    
+    # Put them in a dataframe
+    merged = {**row_data_val, **row_data_test}
+    kv_merged = [{'key': k, 'value': v} for k, v in merged.items()]
+    df = pd.DataFrame(kv_merged)
+    # Log the dataframe
+    wandb.log({'onnx_results': wandb.Table(dataframe=df)})
+    
+    # Wait until wandb is done syncing
+    wandb.finish(exit_code=0)
