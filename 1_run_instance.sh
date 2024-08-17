@@ -18,6 +18,7 @@ export TMPDIR=$SCRATCHDIR
 export PYTHONPATH=$PYTHONPATH:$SCRATCHDIR/mayo_spindles:$SCRATCHDIR/mayo_spindles/mayo_spindles
 export WANDB_API_KEY=42f902b34c4d27b2d2887fbb261df5ed89594e58
 cd mayo_spindles
+conda install cmake -y
 pip install -r requirements.txt
 
 ls -alh
