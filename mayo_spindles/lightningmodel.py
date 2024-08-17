@@ -167,7 +167,7 @@ class SpindleDetector(pl.LightningModule):
         # Add the wandb logger
         self.wandb_logger = wandb_logger
         if self.wandb_logger is not None:
-            self.wandb_logger.watch(self.model, log_freq=1)
+            self.wandb_logger.watch(self.model, log_freq=1, log_graph=False)
         
     def __deepcopy__(self, memo):    
         # Create a new instance of this class with the same arguments
