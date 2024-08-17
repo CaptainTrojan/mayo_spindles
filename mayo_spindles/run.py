@@ -69,6 +69,9 @@ if __name__ == '__main__':
             'model': model_name,
             'additional_model_config': model_config,
             'checkpoint_path': args.checkpoint_path,
+            'share_bottleneck': args.share_bottleneck,
+            'patience': args.patience,
+            'epochs': args.epochs,
         })
         model.set_wandb_logger(wandb_logger)
     else:
