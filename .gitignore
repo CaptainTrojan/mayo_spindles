@@ -8,3 +8,5 @@ checkpoints/
 data/
 hdf5_data/
 predictions*/
+DatabaseSpindles/
+edfs/
