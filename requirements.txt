@@ -3,8 +3,9 @@
 einops==0.8.0
 h5py
 matplotlib
+reformer-pytorch
 mef_tools==1.2.1
-numpy==2.0.1
+numpy==1.26.0
 optuna==3.5.0
 pandas==2.2.2
 plotly==5.18.0
@@ -21,3 +22,6 @@ tqdm
 wandb
 pyedflib
 pytorch_lightning
+yasa
+PyWavelets
+onnxruntime
