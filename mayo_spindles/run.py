@@ -200,6 +200,8 @@ if __name__ == '__main__':
     df = pd.DataFrame(kv_merged)
     # Log the dataframe
     wandb.log({'onnx_results': wandb.Table(dataframe=df)})
+    # Log the values separately as well for w&b processing
+    wandb.log({k: v for k, v in merged.items()})
     
     # Wait until wandb is done syncing
     wandb.finish(exit_code=0)
