@@ -24,4 +24,5 @@ pyedflib
 pytorch_lightning
 yasa
 PyWavelets
+onnx
 onnxruntime
