@@ -42,7 +42,7 @@
             "program": "mayo_spindles/run.py",
             "console": "integratedTerminal",
             "justMyCode": false,
-            "args": ["--model", "cdil", "--data", "hdf5_data", "--epochs", "300", "--batch_size", "16"]
+            "args": ["--model", "cdil", "--data", "hdf5_data", "--epochs", "5", "--batch_size", "16"]
         },
         {
             "name": "Training (smoke)",
@@ -104,6 +104,27 @@
             "program": "mayo_spindles/dataset_stats.py",
             "console": "integratedTerminal",
             "justMyCode": false,
+        },
+        {
+            "name": "Export tex tables",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/tex_table_export.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--data", "hdf5_data",
+            ]
+        },
+        {
+            "name": "Dreams to HDF5",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/dreams_to_hdf5.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+            ]
         }
     ]
 }
