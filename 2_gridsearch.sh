@@ -12,14 +12,26 @@ repeats=$1
 # models=("mlp" "cnn" "rnn" "gru" "lstm" "cdil" "autoformer" "crossformer" "dlinear" "etsformer" "fedformer" "film" "fret")
 models=("cdil")
 share_bottleneck=("True" "False")
+hidden_sizes=(32 64 128)
+conv_dropouts=(0.0 0.2 0.5)
+end_dropouts=(0.0 0.2 0.5)
 
 for model in "${models[@]}"
 do
     for shb in "${share_bottleneck[@]}"
     do
-        for ((i=0; i<repeats; i++))
+        for hidden_size in "${hidden_sizes[@]}"
         do
-            qsub -v "args=--epochs 1000 --patience 100 --model $model --share_bottleneck $shb" 1_run_instance.sh
+            for conv_dropout in "${conv_dropouts[@]}"
+            do
+                for end_dropout in "${end_dropouts[@]}"
+                do
+                    for ((i=0; i<repeats; i++))
+                    do
+                        qsub -v "args=--epochs 1000 --patience 100 --model $model --share_bottleneck $shb --hidden_size $hidden_size --conv_dropout $conv_dropout --end_dropout $end_dropout" 1_run_instance.sh
+                    done
+                done
+            done
         done
     done
 done
