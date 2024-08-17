@@ -16,13 +16,13 @@ bash Miniconda3-latest-Linux-x86_64.sh -b -p $SCRATCHDIR/conda
 . $SCRATCHDIR/conda/etc/profile.d/conda.sh
 conda activate base
 export TMPDIR=$SCRATCHDIR
-export PYTHONPATH=$PYTHONPATH:$SCRATCHDIR/mayo_spindles
+export PYTHONPATH=$PYTHONPATH:$SCRATCHDIR/mayo_spindles:$SCRATCHDIR/mayo_spindles/mayo_spindles
 export WANDB_API_KEY=42f902b34c4d27b2d2887fbb261df5ed89594e58
 cd mayo_spindles
 pip install -r requirements.txt
 
 ls -alh
 
-python run.py --data $SCRATCHDIR/mayo_spindles/hdf5_data $args
+python mayo_spindles/run.py --data $SCRATCHDIR/mayo_spindles/hdf5_data $args
 
 clean_scratch
