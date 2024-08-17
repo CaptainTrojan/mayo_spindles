@@ -1,11 +1,10 @@
 *.mefd
-data/
 *.pyc
 wandb/
 checkpoints/
 .lr_find*
 *.ckpt
-data/
+/data/
 hdf5_data/
 predictions*/
 DatabaseSpindles/
