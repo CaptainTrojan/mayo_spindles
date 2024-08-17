@@ -21,6 +21,7 @@ if __name__ == '__main__':
     parser.add_argument('--data_dir', type=str, required=True)
     parser.add_argument('--output_dir', type=str, required=True)
     parser.add_argument('--duration', type=int, required=True)
+    parser.add_argument('--seed', type=int, required=True)  # Make sure the user remembers the seed
 
     args = parser.parse_args()
     dm = SpindleDataModule(args.data_dir, args.duration, should_convert_metadata_to_tensor=True, train_only=True, batch_size=1)
@@ -74,13 +75,13 @@ if __name__ == '__main__':
     import json
 
     # Show histogram of spindle lengths (log scale)
-    import matplotlib.pyplot as plt
-    plt.hist(y_lens, bins=100)
-    plt.title('Histogram of spindle lengths')
-    plt.xlabel('Spindle length')
-    plt.ylabel('Count')
-    plt.yscale('log')
-    plt.show()
+    # import matplotlib.pyplot as plt
+    # plt.hist(y_lens, bins=100)
+    # plt.title('Histogram of spindle lengths')
+    # plt.xlabel('Spindle length')
+    # plt.ylabel('Count')
+    # plt.yscale('log')
+    # plt.show()
 
 
     # Generate splits.json file
@@ -92,7 +93,7 @@ if __name__ == '__main__':
     # Generate a list of indices and shuffle it
     indices = np.arange(num_samples)
     # Set a seed for reproducibility
-    np.random.seed(42)
+    np.random.seed(args.seed)
     np.random.shuffle(indices)
 
     # Calculate the sizes of the train, validation, and test sets
