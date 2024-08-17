@@ -1,4 +1,3 @@
-#!/bin/bash
 #PBS -q default@pbs-m1.metacentrum.cz
 #PBS -l walltime=24:0:0
 #PBS -l select=1:ncpus=4:ngpus=1:mem=8gb:scratch_local=20gb:cuda_version=12.4
