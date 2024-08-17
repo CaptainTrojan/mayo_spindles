@@ -53,11 +53,11 @@ if __name__ == '__main__':
     rows = []
     
     # ONNX
-    predictions, times = inferer.infer('test.onnx', 'test')
-    eval_res = inferer.evaluate(predictions)
-    if args.draw_plots: 
-        visualizer.generate_prediction_plot_directory('test_onnx', predictions, False)
-    rows.append(get_row_from_results('test_onnx', eval_res, times))
+    # predictions, times = inferer.infer('test.onnx', 'test')
+    # eval_res = inferer.evaluate(predictions)
+    # if args.draw_plots: 
+    #     visualizer.generate_prediction_plot_directory('test_onnx', predictions, False)
+    # rows.append(get_row_from_results('test_onnx', eval_res, times))
     
     # SUMO
     predictions, times = inferer.infer('sumo', 'test')
