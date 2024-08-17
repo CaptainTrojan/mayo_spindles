@@ -307,10 +307,11 @@ class SpindleDetector(pl.LightningModule):
         raise NotImplementedError("Test step not implemented")
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
+        # optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
+        optimizer = torch.optim.SGD(self.parameters(), lr=self.lr)
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             optimizer, 
-            T_max=10,
+            T_max=30,
             eta_min=1e-6,
         )
         return {
