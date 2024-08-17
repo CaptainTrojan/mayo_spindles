@@ -15,8 +15,9 @@ from pytorch_lightning.loggers import WandbLogger
 import wandb
 from infer import Inferer
 from tex_table_export import get_row_from_results
-import os
-import shutil
+import onnxsim
+import onnx
+
 
 def str2bool(v):
     if isinstance(v, bool):
@@ -35,10 +36,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train a Spindle Detector with PyTorch Lightning')
     parser.add_argument('--model', type=str, choices=model_options, required=True, help='name of the model to train')
     parser.add_argument('--data', type=str, required=True, help='path to the data')
-    # Optional arguments
     parser.add_argument('--checkpoint_path', type=str, default='checkpoints', help='path to the checkpoints (default: checkpoints)')
     parser.add_argument('--model_config', type=str, default=None, help='path to the model config file (default: None)')
-    parser.add_argument('--share_bottleneck', type=str2bool, default=True, help='whether to share the bottleneck in detect/segmentation heads (default: True)')
     parser.add_argument('--epochs', type=int, default=1000, help='max number of epochs to train (default: 1000)')
     parser.add_argument('--patience', type=int, default=30, help='patience for early stopping (default: 30)')
     parser.add_argument('--project_name', type=str, default='mayo_spindles_single_channel', help='name of the project (default: mayo_spindles_single_channel)')
@@ -46,6 +45,11 @@ if __name__ == '__main__':
     parser.add_argument('--lr', type=float, default=None, help='learning rate (default: None)')
     parser.add_argument('--batch_size', type=int, default=None, help='batch size (default: None)')
     parser.add_argument('--smoke', action='store_true', help='run a smoke test')
+    
+    parser.add_argument('--share_bottleneck', type=str2bool, default=True, help='whether to share the bottleneck in detect/segmentation heads (default: True)')
+    parser.add_argument('--hidden_size', type=int, default=64, help='hidden size of the shared bottleneck (default: 64)')
+    parser.add_argument('--conv_dropout', type=float, default=0.0, help='dropout rate for the convolutional layers (default: 0.0)')
+    parser.add_argument('--end_dropout', type=float, default=0.0, help='dropout rate for the end layers (default: 0.0)')
     args = parser.parse_args()
     
     data_module = HDF5SpindleDataModule(args.data, batch_size=2, num_workers=args.num_workers)
@@ -60,19 +64,23 @@ if __name__ == '__main__':
     metric = 'val_f_measure_avg'
     detector_config = {
         'share_bottleneck': args.share_bottleneck,
+        'hidden_size': args.hidden_size,
+        'conv_dropout': args.conv_dropout,
+        'end_dropout': args.end_dropout,
     }
     model = SpindleDetector(model_name, model_config, detector_config, metric, mode)
         
     if not args.smoke:
         wandb_logger = WandbLogger(project=args.project_name)
-        wandb_logger.log_hyperparams({
+        hparams = {
             'model': model_name,
             'additional_model_config': model_config,
             'checkpoint_path': args.checkpoint_path,
-            'share_bottleneck': args.share_bottleneck,
             'patience': args.patience,
             'epochs': args.epochs,
-        })
+        }
+        hparams.update(detector_config)
+        wandb_logger.log_hyperparams(hparams)
         model.set_wandb_logger(wandb_logger)
     else:
         wandb_logger = None
@@ -126,8 +134,8 @@ if __name__ == '__main__':
     elif args.smoke:
         data_module.batch_size = 16
     else:
-        new_batch_size = tuner.scale_batch_size(model, datamodule=data_module, mode='power', max_trials=6, steps_per_trial=5)
-        new_batch_size = int(new_batch_size * 0.75)  # Reduce batch size a bit to be safe
+        new_batch_size = tuner.scale_batch_size(model, datamodule=data_module, mode='power', max_trials=7, steps_per_trial=25)
+        new_batch_size = int(new_batch_size * 0.5)  # Reduce batch size a bit to be safe
         print(f"Suggested batch size: {new_batch_size}")
 
         # Update batch size and learning rate
@@ -162,18 +170,30 @@ if __name__ == '__main__':
         metric=metric,
         mode=mode
     )  
+    model.eval()
     score = checkpoint_callback.best_model_score.item()
     export_path = f"{args.checkpoint_path}/sd-{metric}-{score:.5f}.onnx"
     model.to_onnx(export_path, 
         input_names=['raw_signal', 'spectrogram'],
         output_names=['detection', 'segmentation'],
+        do_constant_folding=True,
         dynamic_axes={
             'raw_signal': {0: 'batch_size'},
             'spectrogram': {0: 'batch_size'}
         }
-    )    
+    )
+    
+    # Simplify the ONNX model
+    simplified_onnx, check_ok = onnxsim.simplify(export_path)
+    if check_ok:
+        simplified_export_path = f"{export_path[:-5]}-simplified.onnx"
+        onnx.save_model(simplified_onnx, simplified_export_path)
+        onnx_path = simplified_export_path
+    else:
+        onnx_path = export_path  # Use the original model if simplification failed
+    
     # Store the ONNX model in W&B
-    wandb.log_model(export_path, name=f'{wandb.run.name}-spindle-detector')
+    wandb.log_model(onnx_path, name=f'{wandb.run.name}-spindle-detector')
 
     # Run inference on both validation and test sets.
     # Validation so we can verify that exporting to ONNX worked correctly.
