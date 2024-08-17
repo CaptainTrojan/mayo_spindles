@@ -6,6 +6,7 @@ from evaluator import Evaluator
 from yasa_util import yasa_predict
 from sumo.scripts.sumo_util import infer_a7, infer_sumo
 from dataloader import HDF5SpindleDataModule
+from time import perf_counter
 
 
 class Inferer:
@@ -82,11 +83,18 @@ class Inferer:
         return outputs
 
     def infer(self,
-              model: torch.nn.Module | ort.InferenceSession | str,
+              model: torch.nn.Module | str,
               split: str, 
               model_params: dict = {}, 
               max_elems=-1
-              ) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor], dict[str, torch.Tensor]]:
+              ) -> tuple[
+                    tuple[
+                      dict[str, torch.Tensor],
+                      dict[str, torch.Tensor],
+                      dict[str, torch.Tensor]
+                    ],
+                    list[float]
+                ]:
         """
         Computes predictions and collates them into three dictionaries: inputs, true labels, and predicted labels.
         Each dictionary's value has shape [B, ...], where B is the batch size.
@@ -101,21 +109,23 @@ class Inferer:
         if isinstance(model, torch.nn.Module):
             infer_fn = self.__infer_torch
             infer_fn_kwargs = {'model': model}
-        elif isinstance(model, ort.InferenceSession):
-            infer_fn = self.__infer_onnx
-            infer_fn_kwargs = {'model': model}
         elif isinstance(model, str):
-            is_our_model = False
-            match model:
-                case 'yasa':
-                    infer_fn = self.__infer_yasa
-                    infer_fn_kwargs = {'model_params': model_params}
-                case 'a7':
-                    infer_fn = self.__infer_a7
-                    infer_fn_kwargs = {'model_params': model_params}
-                case 'sumo':
-                    infer_fn = self.__infer_sumo
-                    infer_fn_kwargs = {'model_params': model_params}
+            if model.endswith('.onnx'):
+                model = ort.InferenceSession(model)
+                infer_fn = self.__infer_onnx
+                infer_fn_kwargs = {'model': model}
+            else:
+                is_our_model = False
+                match model:
+                    case 'yasa':
+                        infer_fn = self.__infer_yasa
+                        infer_fn_kwargs = {'model_params': model_params}
+                    case 'a7':
+                        infer_fn = self.__infer_a7
+                        infer_fn_kwargs = {'model_params': model_params}
+                    case 'sumo':
+                        infer_fn = self.__infer_sumo
+                        infer_fn_kwargs = {'model_params': model_params}
                     
         # Ensure to get raw signal only for other models
         if not is_our_model:
@@ -133,6 +143,7 @@ class Inferer:
             case _:
                 raise ValueError(f"Invalid split: {split}")
 
+        infer_times = []
         predictions = []
         with torch.no_grad():
             for i, batch in enumerate(tqdm(data_loader, desc=f'Inference on {split} split')):
@@ -140,8 +151,12 @@ class Inferer:
                     break
 
                 inputs, labels = batch
+                start_time = perf_counter()
                 outputs = infer_fn(inputs, **infer_fn_kwargs)
+                end_time = perf_counter()
+                
                 predictions.append((inputs, labels, outputs))
+                infer_times.append(end_time - start_time)
 
         # Collate results
         predictions = self.__collate_predictions(predictions)
@@ -149,8 +164,22 @@ class Inferer:
         # Reset the raw signal only setting
         if not is_our_model:
             self.data_module.set_raw_signal_only(original_setting)
+            
+        batch_size = self.data_module.batch_size
+        one_recording_duration = 30  # Assume 30 seconds per recording
+        total_num_elems = len(predictions[0]['raw_signal'])
+        avg_elem_time = sum(infer_times) / total_num_elems
+        times = {
+            'total_time': sum(infer_times),
+            'avg_batch_time': sum(infer_times) / len(infer_times),
+            'avg_elem_time': avg_elem_time,
+            'batch_size': batch_size,
+            'total_num_elems': total_num_elems,
+            'total_input_duration': one_recording_duration * total_num_elems,
+            'avg_speedup': one_recording_duration / avg_elem_time
+        }
         
-        return predictions
+        return predictions, times
     
     def evaluate(self, 
                  predictions: tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, np.ndarray]],
