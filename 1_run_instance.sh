@@ -1,8 +1,8 @@
 #!/bin/bash
-#PBS -N mayo-spindles
-#PBS -l select=1:ncpus=10:ngpus=1:gpu_mem=10gb:mem=64gb:scratch_local=60gb
-#PBS -l walltime=23:59:00
-#PBS -q gpu
+#PBS -q default@pbs-m1.metacentrum.cz
+#PBS -l walltime=24:0:0
+#PBS -l select=1:ncpus=4:ngpus=1:mem=8gb:scratch_local=20gb:cuda_version=12.4
+#PBS -N spindle-detector
 #PBS -m n
 
 echo "$PBS_JOBID is running on node `hostname -f` in a scratch directory $SCRATCHDIR"
@@ -23,6 +23,6 @@ pip install -r requirements.txt
 
 ls -alh
 
-python run.py --data $SCRATCHDIR/mayo_spindles/data $args
+python run.py --data $SCRATCHDIR/mayo_spindles/hdf5_data $args
 
 clean_scratch
