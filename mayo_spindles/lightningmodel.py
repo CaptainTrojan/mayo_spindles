@@ -20,29 +20,33 @@ class WindowAveraging(torch.nn.Module):
         return x
     
 class Downscale1D(torch.nn.Module):
-    def __init__(self, in_channels, out_channels, factor=2):
+    def __init__(self, in_channels, out_channels, factor=2, dropout=0.0):
         super().__init__()
         self.factor = factor
         self.batchnorm = torch.nn.BatchNorm1d(in_channels)
+        self.dropout = torch.nn.Dropout(dropout)
         self.conv = torch.nn.Conv1d(in_channels, out_channels, kernel_size=factor, stride=factor, padding=0, bias=False)
         self.act = torch.nn.GELU()
 
     def forward(self, x):
         x = self.batchnorm(x)
+        x = self.dropout(x)
         x = self.conv(x)
         x = self.act(x)
         return x
     
 class Upscale1D(torch.nn.Module):
-    def __init__(self, in_channels, out_channels, factor=2):
+    def __init__(self, in_channels, out_channels, factor=2, dropout=0.0):
         super().__init__()
         self.factor = factor
         self.batchnorm = torch.nn.BatchNorm1d(in_channels)
+        self.dropout = torch.nn.Dropout(dropout)
         self.conv = torch.nn.ConvTranspose1d(in_channels, out_channels, kernel_size=factor, stride=factor, padding=0, bias=False)
         self.act = torch.nn.GELU()
         
     def forward(self, x):
         x = self.batchnorm(x)
+        x = self.dropout(x)
         x = self.conv(x)
         x = self.act(x)
         return x
@@ -61,22 +65,25 @@ class EfficientIntervalHead(torch.nn.Module):
     def __init__(self, input_size, detector_config):
         super().__init__()
         self.share_bottleneck = detector_config['share_bottleneck']
+        self.hidden_size = detector_config['hidden_size']
+        self.conv_dropout = detector_config['conv_dropout']
+        self.end_dropout = detector_config['end_dropout']
         
-        channels = [input_size[-1], 64, 64, 64, 64]
+        channels = [input_size[-1], self.hidden_size, self.hidden_size, self.hidden_size, self.hidden_size]
         factors = [5, 5, 5, 2]
         num_layers = len(channels)
         
         if self.share_bottleneck:
             self.bottleneck = torch.nn.Sequential(
-                *[Downscale1D(channels[i], channels[i + 1], factor=factors[i]) for i in range(num_layers - 1)]
+                *[Downscale1D(channels[i], channels[i + 1], factor=factors[i], dropout=self.conv_dropout) for i in range(num_layers - 1)]
             )
         else:
             self.bottleneck_detection = torch.nn.Sequential(
-                *[Downscale1D(channels[i], channels[i + 1], factor=factors[i]) for i in range(num_layers - 1)]
+                *[Downscale1D(channels[i], channels[i + 1], factor=factors[i], dropout=self.conv_dropout) for i in range(num_layers - 1)]
             )
             
             self.bottleneck_segmentation = torch.nn.Sequential(
-                *[Downscale1D(channels[i], channels[i + 1], factor=factors[i]) for i in range(num_layers - 1)]
+                *[Downscale1D(channels[i], channels[i + 1], factor=factors[i], dropout=self.conv_dropout) for i in range(num_layers - 1)]
             )
         
         # Detection head - for each block, predict:
@@ -85,6 +92,7 @@ class EfficientIntervalHead(torch.nn.Module):
         # - what is the spindle duration
         self.detection_head = torch.nn.Sequential(
             torch.nn.Linear(channels[num_layers-1], channels[num_layers-1]),
+            torch.nn.Dropout(self.conv_dropout),
             torch.nn.SiLU(),
             torch.nn.Linear(channels[num_layers-1], 3),
             # torch.nn.Sigmoid()
@@ -92,9 +100,10 @@ class EfficientIntervalHead(torch.nn.Module):
         
         # Segmentation head - upscale blocks back and predict the segmentation
         self.segmentation_neck = torch.nn.Sequential(
-            *[Upscale1D(channels[i+1], channels[i], factor=factors[i]) for i in range(num_layers - 2, -1, -1)],
+            *[Upscale1D(channels[i+1], channels[i], factor=factors[i], dropout=self.end_dropout) for i in range(num_layers - 2, -1, -1)],
         )
         self.segmentation_head = torch.nn.Sequential(
+            torch.nn.Dropout(self.end_dropout),
             torch.nn.Linear(channels[0], 1),
         )
         
