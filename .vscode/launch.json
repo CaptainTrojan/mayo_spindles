@@ -60,7 +60,7 @@
             "program": "mayo_spindles/export_hdf5_dataset.py",
             "console": "integratedTerminal",
             "justMyCode": false,
-            "args": ["--data_dir", "data", "--output_dir", "hdf5_data", "--duration", "30"]
+            "args": ["--data_dir", "data", "--output_dir", "hdf5_data", "--duration", "30", "--seed", "42"]
         },
         {
             "name": "Test training visualizer",
