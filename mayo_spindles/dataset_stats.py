@@ -6,7 +6,7 @@ import cProfile
 import pstats
 
 def main():
-    dataset = HDF5Dataset('hdf5_data', split='train', augmentations_size=2000)
+    dataset = HDF5Dataset('hdf5_data', split='train', use_augmentations=True)
     spindle_lengths = []
     spindle_counts = []
     for (X, y) in tqdm(dataset, desc='Iterating over dataset', total=len(dataset)):
