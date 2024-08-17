@@ -39,7 +39,8 @@ if __name__ == '__main__':
     parser.add_argument('--checkpoint_path', type=str, default='checkpoints', help='path to the checkpoints (default: checkpoints)')
     parser.add_argument('--model_config', type=str, default=None, help='path to the model config file (default: None)')
     parser.add_argument('--share_bottleneck', type=str2bool, default=True, help='whether to share the bottleneck in detect/segmentation heads (default: True)')
-    parser.add_argument('--epochs', type=int, default=1, help='number of epochs to train (default: 1)')
+    parser.add_argument('--epochs', type=int, default=1000, help='max number of epochs to train (default: 1000)')
+    parser.add_argument('--patience', type=int, default=30, help='patience for early stopping (default: 30)')
     parser.add_argument('--project_name', type=str, default='mayo_spindles_single_channel', help='name of the project (default: mayo_spindles_single_channel)')
     parser.add_argument('--num_workers', type=int, default=10, help='number of workers for the data loader (default: 10)')
     parser.add_argument('--lr', type=float, default=None, help='learning rate (default: None)')
@@ -77,7 +78,7 @@ if __name__ == '__main__':
     swa_callback = StochasticWeightAveraging(swa_lrs=1e-2)
     early_stopping_callback = EarlyStopping(
         monitor=f'{metric}',
-        patience=30,
+        patience=args.patience,
         mode=mode,
     )
     checkpoint_callback = ModelCheckpoint(
