@@ -18,10 +18,18 @@ class HDF5Dataset(Dataset):
         'spectrogram': [30, seq_len] - scalogram of the raw signal
     Y: 
         'segmentation': [seq_len, 1] - binary spindle segmentation map, 0 for non-spindle, 1 for spindle
-        'detection': [29, 3] - spindle detections, where each row is [spindle existence, center offset, spindle duration (real)]
+        'detection': [30, 3] - spindle detections, where each row is [spindle existence, center offset, spindle duration (real)]
         'class': [] - class label for the spindles corresponding to the channel from which the raw signal was taken
     """
-    def __init__(self, data_dir, split, use_augmentations=False, raw_signal_only=False):
+    def __init__(self, data_dir, split, use_augmentations=False, raw_signal_only=False, annotator_spec: str = ''):
+        """
+        Args:
+            data_dir (str): Path to the directory containing the data
+            split (str): Name of the split to use (train, val, test)
+            use_augmentations (bool): Whether to use augmentations on the data
+            raw_signal_only (bool): Whether to return only the raw signal
+            annotator_spec (str): Specification of the annotator to use. If 'all', use intersection between all annotators. If 'any', use union between all annotators. Anything else is appended to 'y' to get a specific annotator.
+        """
         super().__init__()
         self.return_raw_signal = raw_signal_only
         self.file_path = os.path.join(data_dir, 'data.hdf5')
@@ -36,10 +44,25 @@ class HDF5Dataset(Dataset):
         self.augmentations = use_augmentations
         
         self.indices = self.splits[split]
-
+        
+        # Find each dataset that starts with 'y' and add it to the list of annotators
+        self.annotator_spec = annotator_spec
+        self.annotators = []
         with h5py.File(self.file_path, 'r') as hf:
             self.seq_len = hf['x'].shape[1]
-            assert hf['y'].shape[1] == self.seq_len, f"Expected {hf['y'].shape[1]} to be {self.seq_len}"
+            for key in hf.keys():
+                if key.startswith('y') and key != 'y_class':
+                    self.annotators.append(key)
+                    assert hf[key].shape[1] == self.seq_len, f"Expected {hf[key].shape[1]} to be {self.seq_len}"
+                
+        # If annotator_spec is not 'any' or 'all', make sure it is a valid annotator
+        if annotator_spec not in ['any', 'all']:
+            self._target_annotator = f'y{annotator_spec}'
+            if not self._target_annotator in self.annotators:
+                raise ValueError(f"Annotator '{self._target_annotator}' not found among {self.annotators}. "\
+                    f"For annotator_spec, use 'any' or 'all' to specify how to combine all annotators or choose one of {[annot[1:] for annot in self.annotators]}")
+        else:
+            self._target_annotator = None
             
     def set_raw_signal_only(self, raw_signal_only):
         self.return_raw_signal = raw_signal_only
@@ -116,7 +139,25 @@ class HDF5Dataset(Dataset):
         return ret
 
     def __load_one_element(self, col, idx, normalize=False):
-        el = self.__load_one_element_raw(col, idx)
+        if col == 'y':
+            if self.annotator_spec == 'all':
+                # Intersection of all annotators
+                el = self.__load_one_element_raw(self.annotators[0], idx)
+                og_dtype = el.dtype
+                for annotator in self.annotators[1:]:
+                    el = np.logical_and(el, self.__load_one_element_raw(annotator, idx))
+                el = el.astype(og_dtype)
+            elif self.annotator_spec == 'any':
+                # Union of all annotators
+                el = self.__load_one_element_raw(self.annotators[0], idx)
+                og_dtype = el.dtype
+                for annotator in self.annotators[1:]:
+                    el = np.logical_or(el, self.__load_one_element_raw(annotator, idx))
+                el = el.astype(og_dtype)
+            else:
+                el = self.__load_one_element_raw(self._target_annotator, idx)
+        else:
+            el = self.__load_one_element_raw(col, idx)
         
         if normalize:
             el = self.__normalize(el)
@@ -171,15 +212,16 @@ class HDF5Dataset(Dataset):
 
 
 class HDF5SpindleDataModule(LightningDataModule):
-    def __init__(self, data_dir, batch_size=32, num_workers=0):
+    def __init__(self, data_dir, batch_size=32, num_workers=0, annotator_spec: str = ''):
         super().__init__()
         self.data_dir = data_dir
         self.batch_size = batch_size
         self.num_workers = num_workers
+        self.annotator_spec = annotator_spec
             
-        self.train_dataset = HDF5Dataset(self.data_dir, 'train', use_augmentations=True)
-        self.val_dataset = HDF5Dataset(self.data_dir, 'val')
-        self.test_dataset = HDF5Dataset(self.data_dir, 'test')
+        self.train_dataset = HDF5Dataset(self.data_dir, 'train', annotator_spec=annotator_spec, use_augmentations=True)
+        self.val_dataset = HDF5Dataset(self.data_dir, 'val', annotator_spec=annotator_spec)
+        self.test_dataset = HDF5Dataset(self.data_dir, 'test', annotator_spec=annotator_spec)
         
     def set_raw_signal_only(self, raw_signal_only):
         self.train_dataset.set_raw_signal_only(raw_signal_only)
