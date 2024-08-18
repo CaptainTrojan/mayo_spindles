@@ -26,13 +26,26 @@
             "justMyCode": false
         },
         {
-            "name": "Visualization",
+            "name": "Visualization (ours)",
             "type": "debugpy",
             "request": "launch",
             "program": "mayo_spindles/visualizer.py",
             "console": "integratedTerminal",
             "justMyCode": false,
             "args": [
+                "--data", "hdf5_data",
+            ]
+        },
+        {
+            "name": "Visualization (DREAMS, 1)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/visualizer.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--data", "DREAMS_HDF5",
+                "--annotator_spec", "1"
             ]
         },
         {
