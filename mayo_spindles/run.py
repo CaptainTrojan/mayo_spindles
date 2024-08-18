@@ -18,6 +18,7 @@ from tex_table_export import get_row_from_results
 import onnxsim
 import onnx
 import os
+import optuna
 
 
 def str2bool(v):
@@ -31,56 +32,7 @@ def str2bool(v):
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
 
-if __name__ == '__main__':
-    model_options = ModelRepository().get_model_names()
-    
-    parser = argparse.ArgumentParser(description='Train a Spindle Detector with PyTorch Lightning')
-    parser.add_argument('--model', type=str, choices=model_options, required=True, help='name of the model to train')
-    parser.add_argument('--model_config', type=str, default=None, help='path to the model config file (default: None)')
-    parser.add_argument('--data', type=str, required=True, help='path to the data')
-    parser.add_argument('--checkpoint_path', type=str, default='checkpoints', help='path to the checkpoints (default: checkpoints)')
-
-    parser.add_argument('--project_name', type=str, default='mayo_spindles_single_channel', help='name of the project (default: mayo_spindles_single_channel)')
-    parser.add_argument('--num_workers', type=int, default=10, help='number of workers for the data loader (default: 10)')
-    
-    parser.add_argument('--epochs', type=int, default=1000, help='max number of epochs to train (default: 1000)')
-    parser.add_argument('--patience', type=int, default=30, help='patience for early stopping (default: 30)')
-    parser.add_argument('--lr', type=float, default=None, help='learning rate (default: None)')
-    parser.add_argument('--batch_size', type=int, default=None, help='batch size (default: None)')
-    parser.add_argument('--smoke', action='store_true', help='run a smoke test')
-    
-    parser.add_argument('--annotator_spec', type=str, default='', help='Annotator specification')
-    
-    parser.add_argument('--share_bottleneck', type=str2bool, default=True, help='whether to share the bottleneck in detect/segmentation heads (default: True)')
-    parser.add_argument('--hidden_size', type=int, default=64, help='hidden size of the shared bottleneck (default: 64)')
-    parser.add_argument('--conv_dropout', type=float, default=0.0, help='dropout rate for the convolutional layers (default: 0.0)')
-    parser.add_argument('--end_dropout', type=float, default=0.0, help='dropout rate for the end layers (default: 0.0)')
-    args = parser.parse_args()
-    
-    data_base_path = os.path.basename(args.data)
-    
-    if 'DREAMS' in data_base_path:
-        dataset_specification = 'dreams'
-    else:
-        assert data_base_path == 'hdf5_data'  # Just to be sure
-        dataset_specification = 'mayoieeg'
-    
-    data_module = HDF5SpindleDataModule(args.data, batch_size=2, num_workers=args.num_workers, annotator_spec=args.annotator_spec)
-    
-    model_name = args.model
-    if args.model_config is not None:
-        model_config = yaml.safe_load(open(args.model_config, 'r'))
-    else:
-        model_config = {}
-        
-    mode = 'max'
-    metric = 'val_f_measure_avg'
-    detector_config = {
-        'share_bottleneck': args.share_bottleneck,
-        'hidden_size': args.hidden_size,
-        'conv_dropout': args.conv_dropout,
-        'end_dropout': args.end_dropout,
-    }
+def run_training(args, dataset_specification, data_module, model_name, model_config, mode, metric, detector_config):
     model = SpindleDetector(model_name, model_config, detector_config, metric, mode)
         
     if not args.smoke:
@@ -240,3 +192,91 @@ if __name__ == '__main__':
     
     # Wait until wandb is done syncing
     wandb.finish(exit_code=0)
+    
+    return merged['onnx/val/f1']
+
+if __name__ == '__main__':
+    model_options = ModelRepository().get_model_names()
+    
+    parser = argparse.ArgumentParser(description='Train a Spindle Detector with PyTorch Lightning')
+    parser.add_argument('--model', type=str, choices=model_options, required=True, help='name of the model to train')
+    parser.add_argument('--model_config', type=str, default=None, help='path to the model config file (default: None)')
+    parser.add_argument('--data', type=str, required=True, help='path to the data')
+    parser.add_argument('--checkpoint_path', type=str, default='checkpoints', help='path to the checkpoints (default: checkpoints)')
+
+    parser.add_argument('--project_name', type=str, default='mayo_spindles_single_channel', help='name of the project (default: mayo_spindles_single_channel)')
+    parser.add_argument('--num_workers', type=int, default=10, help='number of workers for the data loader (default: 10)')
+    
+    parser.add_argument('--epochs', type=int, default=1000, help='max number of epochs to train (default: 1000)')
+    parser.add_argument('--patience', type=int, default=30, help='patience for early stopping (default: 30)')
+    parser.add_argument('--lr', type=float, default=None, help='learning rate (default: None)')
+    parser.add_argument('--batch_size', type=int, default=None, help='batch size (default: None)')
+    parser.add_argument('--smoke', action='store_true', help='run a smoke test')
+    
+    parser.add_argument('--annotator_spec', type=str, default='', help='Annotator specification')
+    
+    parser.add_argument('--share_bottleneck', type=str2bool, default=True, help='whether to share the bottleneck in detect/segmentation heads (default: True)')
+    parser.add_argument('--hidden_size', type=int, default=64, help='hidden size of the shared bottleneck (default: 64)')
+    parser.add_argument('--conv_dropout', type=float, default=0.0, help='dropout rate for the convolutional layers (default: 0.0)')
+    parser.add_argument('--end_dropout', type=float, default=0.0, help='dropout rate for the end layers (default: 0.0)')
+    
+    parser.add_argument('--optuna_study', type=str, default=None, help='Optuna study name (default: None)')
+    parser.add_argument('--optuna_timeout', type=int, default=23*60*60, help='Optuna timeout in seconds (default: 23 hours)')
+    args = parser.parse_args()
+    
+    data_base_path = os.path.basename(args.data)
+    
+    if 'DREAMS' in data_base_path:
+        dataset_specification = 'dreams'
+    else:
+        assert data_base_path == 'hdf5_data'  # Just to be sure
+        dataset_specification = 'mayoieeg'
+    
+    data_module = HDF5SpindleDataModule(args.data, batch_size=2, num_workers=args.num_workers, annotator_spec=args.annotator_spec)
+    
+    model_name = args.model
+    if args.model_config is not None:
+        model_config = yaml.safe_load(open(args.model_config, 'r'))
+    else:
+        model_config = {}
+        
+    mode = 'max'
+    metric = 'val_f_measure_avg'
+    
+    if args.optuna_study is None:
+        # Just run the training
+        detector_config = {
+            'share_bottleneck': args.share_bottleneck,
+            'hidden_size': args.hidden_size,
+            'conv_dropout': args.conv_dropout,
+            'end_dropout': args.end_dropout,
+        }
+        run_training(args, dataset_specification, data_module, model_name, model_config, mode, metric, detector_config)
+    else:
+        POSTGRES_PW = os.getenv("POSTGRES_PW")
+        if POSTGRES_PW is None:
+            raise ValueError("Please set the POSTGRES_PW environment variable to the password of the PostgreSQL database.")
+        
+        # Define the objective
+        def objective(trial: optuna.Trial):
+            share_bottleneck = trial.suggest_categorical('share_bottleneck', [True, False])
+            hidden_size = trial.suggest_int('hidden_size', 16, 128)
+            conv_dropout = trial.suggest_float('conv_dropout', 0.0, 0.5)
+            end_dropout = trial.suggest_float('end_dropout', 0.0, 0.5)
+            
+            detector_config = {
+                'share_bottleneck': share_bottleneck,
+                'hidden_size': hidden_size,
+                'conv_dropout': conv_dropout,
+                'end_dropout': end_dropout,
+            }
+            
+            val_f1_avg = run_training(args, dataset_specification, data_module, model_name, model_config, mode, metric, detector_config)
+            return -val_f1_avg
+        
+        # Load the Optuna trial
+        study = optuna.create_study(
+            study_name=args.optuna_study,
+            storage=f"postgresql://postgres:{POSTGRES_PW}@147.228.127.28:40442",
+        )
+        study.optimize(objective, timeout=23*60*60, gc_after_trial=True)
