@@ -57,7 +57,7 @@ if __name__ == '__main__':
     parser.add_argument('--end_dropout', type=float, default=0.0, help='dropout rate for the end layers (default: 0.0)')
     args = parser.parse_args()
     
-    data_base_path = os.basename(args.data)
+    data_base_path = os.path.basename(args.data)
     
     if 'DREAMS' in data_base_path:
         dataset_specification = 'dreams'
