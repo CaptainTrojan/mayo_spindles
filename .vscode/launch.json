@@ -98,12 +98,63 @@
             ]
         },
         {
-            "name": "Compute dataset statistics",
+            "name": "Compute dataset statistics (ours)",
             "type": "debugpy",
             "request": "launch",
             "program": "mayo_spindles/dataset_stats.py",
             "console": "integratedTerminal",
             "justMyCode": false,
+            "args": [
+                "--data", "hdf5_data",
+            ]
+        },
+        {
+            "name": "Compute dataset statistics (DREAMS, all)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/dataset_stats.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--data", "DREAMS_HDF5",
+                "--annotator_spec", "all"
+            ]
+        },
+        {
+            "name": "Compute dataset statistics (DREAMS, any)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/dataset_stats.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--data", "DREAMS_HDF5",
+                "--annotator_spec", "any"
+            ]
+        },
+        {
+            "name": "Compute dataset statistics (DREAMS, 1)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/dataset_stats.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--data", "DREAMS_HDF5",
+                "--annotator_spec", "1"
+            ]
+        },
+        {
+            "name": "Compute dataset statistics (DREAMS, 2)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/dataset_stats.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--data", "DREAMS_HDF5",
+                "--annotator_spec", "2"
+            ]
         },
         {
             "name": "Export tex tables",
