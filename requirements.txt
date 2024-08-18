@@ -6,7 +6,7 @@ matplotlib
 reformer-pytorch
 mef_tools==1.2.1
 numpy==1.26.0
-optuna==3.5.0
+optuna
 pandas==2.2.2
 plotly==5.18.0
 PyQt5==5.15.11
@@ -27,3 +27,4 @@ PyWavelets
 onnx
 onnxruntime
 onnxsim
+psycopg2
