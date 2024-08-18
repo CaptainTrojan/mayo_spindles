@@ -13,12 +13,12 @@ cd $SCRATCHDIR
 wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
 bash Miniconda3-latest-Linux-x86_64.sh -b -p $SCRATCHDIR/conda
 . $SCRATCHDIR/conda/etc/profile.d/conda.sh
-conda activate base
+conda create -n p311 -c conda-forge python=3.11 cmake
+conda activate p311
 export TMPDIR=$SCRATCHDIR
 export PYTHONPATH=$PYTHONPATH:$SCRATCHDIR/mayo_spindles:$SCRATCHDIR/mayo_spindles/mayo_spindles
 export WANDB_API_KEY=42f902b34c4d27b2d2887fbb261df5ed89594e58
 cd mayo_spindles
-conda install cmake -y
 pip install -r requirements.txt
 
 ls -alh
