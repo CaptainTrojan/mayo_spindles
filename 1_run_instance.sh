@@ -23,6 +23,6 @@ pip install -r requirements.txt
 
 ls -alh
 
-python mayo_spindles/run.py --data $SCRATCHDIR/mayo_spindles/hdf5_data --num_workers 4 $args
+python mayo_spindles/run.py --num_workers 4 $args
 
 clean_scratch
