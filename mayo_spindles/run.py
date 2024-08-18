@@ -149,7 +149,7 @@ if __name__ == '__main__':
     elif args.smoke:
         data_module.batch_size = 16
     else:
-        new_batch_size = tuner.scale_batch_size(model, datamodule=data_module, mode='power', max_trials=7, steps_per_trial=25)
+        new_batch_size = tuner.scale_batch_size(model, datamodule=data_module, mode='power', max_trials=6, steps_per_trial=25)
         new_batch_size = int(new_batch_size * 0.5)  # Reduce batch size a bit to be safe
         print(f"Suggested batch size: {new_batch_size}")
 
