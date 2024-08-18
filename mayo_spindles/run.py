@@ -278,5 +278,6 @@ if __name__ == '__main__':
         study = optuna.create_study(
             study_name=args.optuna_study,
             storage=f"postgresql://postgres:{POSTGRES_PW}@147.228.127.28:40442",
+            load_if_exists=True,
         )
         study.optimize(objective, timeout=23*60*60, gc_after_trial=True)
