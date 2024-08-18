@@ -280,4 +280,4 @@ if __name__ == '__main__':
             storage=f"postgresql://postgres:{POSTGRES_PW}@147.228.127.28:40442",
             load_if_exists=True,
         )
-        study.optimize(objective, timeout=23*60*60, gc_after_trial=True)
+        study.optimize(objective, timeout=args.optuna_timeout, gc_after_trial=True)
