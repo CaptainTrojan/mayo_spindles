@@ -155,9 +155,11 @@ class Visualizer(QMainWindow):
 
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser()
+    argparser.add_argument('--data', type=str, default='hdf5_data', help='Path to HDF5 dataset')
+    argparser.add_argument('--annotator_spec', type=str, default='', help='Annotator specification')
     args = argparser.parse_args()
     
-    dataset = HDF5Dataset('hdf5_data', split='train', use_augmentations=True)
+    dataset = HDF5Dataset(args.data, split='train', use_augmentations=True, annotator_spec=args.annotator_spec)
     print(f"Loaded dataset with {len(dataset)} elements ")
     
     app = QApplication(sys.argv)
