@@ -11,3 +11,5 @@ DatabaseSpindles/
 edfs/
 *.tex
 DREAMS_HDF5/
+*.xml
+*.zip
