@@ -160,7 +160,7 @@ if __name__ == '__main__':
     argparser.add_argument('--split', choices=['train', 'val', 'test'], default='train', help='Dataset split')
     args = argparser.parse_args()
     
-    dataset = HDF5Dataset(args.data, split=args.split, use_augmentations=True, annotator_spec=args.annotator_spec)
+    dataset = HDF5Dataset(args.data, split=args.split, use_augmentations=False, annotator_spec=args.annotator_spec)
     print(f"Loaded dataset with {len(dataset)} elements ")
     
     app = QApplication(sys.argv)
