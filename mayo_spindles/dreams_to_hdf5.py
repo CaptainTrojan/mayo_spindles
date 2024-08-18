@@ -25,11 +25,11 @@ def load_signal(data_dir, target_freq, excerpt_id):
         else:
             sf = 200
         
-        values = np.array(values, dtype=np.float32)  # Single channel data
+        values = np.array(values)  # Single channel data
         
         # Re-sample to 250 Hz
         # print(f"Excerpt {excerpt_id}: {len(values)} samples at {sf} Hz")
-        values = np.interp(np.linspace(0, len(values) / sf, len(values) * target_freq // sf), np.arange(len(values)) / sf, values)
+        values = np.interp(np.linspace(0, len(values) / sf, len(values) * target_freq // sf), np.arange(len(values)) / sf, values).astype(np.float32)
         # print(f"Re-sampled to {len(values)} samples at {target_freq} Hz")
         
         return values
@@ -174,4 +174,11 @@ if __name__ == '__main__':
         hf.create_dataset('y1', data=y1_data, chunks=(1, y1_data.shape[1]))
         hf.create_dataset('y2', data=y2_data, chunks=(1, y2_data.shape[1]))
         hf.create_dataset('y_class', data=y_class_data, chunks=(1, ))
-        
+    
+    # Load the file and check the dtypes
+    with h5py.File(f'{args.output_dir}/data.hdf5', 'r') as hf:
+        print(f'x_data dtype: {x_data.dtype}')
+        print(f'scalogram_data dtype: {scalogram_data.dtype}')
+        print(f'y1_data dtype: {y1_data.dtype}')
+        print(f'y2_data dtype: {y2_data.dtype}')
+        print(f'y_class_data dtype: {y_class_data.dtype}')

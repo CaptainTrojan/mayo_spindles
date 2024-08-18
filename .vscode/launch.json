@@ -81,6 +81,19 @@
             "args": ["--model", "cdil", "--data", "DREAMS_HDF5", "--epochs", "5", "--batch_size", "16", "--annotator_spec", "1"]
         },
         {
+            "name": "Training (ours, optuna)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/run.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": ["--model", "cdil", "--data", "hdf5_data", "--epochs", "5", "--batch_size", "16", "--optuna_study", "SD-ours-test123", "--optuna_timeout", "300"],
+            "env":
+            {
+                "POSTGRES_PW": "31optuna42rocks",
+            }
+        },
+        {
             "name": "Training (smoke)",
             "type": "debugpy",
             "request": "launch",
