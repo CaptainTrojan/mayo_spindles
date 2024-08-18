@@ -40,7 +40,7 @@ do
                 do
                     for ((i=0; i<repeats; i++))
                     do
-                        qsub -v "args=$data_args --epochs 1000 --patience 100 --model $model --share_bottleneck $shb --hidden_size $hidden_size --conv_dropout $conv_dropout --end_dropout $end_dropout" 1_run_instance.sh
+                        qsub -v "args=$data_args --epochs 1000 --patience 60 --model $model --share_bottleneck $shb --hidden_size $hidden_size --conv_dropout $conv_dropout --end_dropout $end_dropout" 1_run_instance.sh
                     done
                 done
             done
