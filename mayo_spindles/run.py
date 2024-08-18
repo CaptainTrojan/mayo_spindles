@@ -17,6 +17,7 @@ from infer import Inferer
 from tex_table_export import get_row_from_results
 import onnxsim
 import onnx
+import os
 
 
 def str2bool(v):
@@ -56,10 +57,12 @@ if __name__ == '__main__':
     parser.add_argument('--end_dropout', type=float, default=0.0, help='dropout rate for the end layers (default: 0.0)')
     args = parser.parse_args()
     
-    if 'DREAMS' in args.data:
+    data_base_path = os.basename(args.data)
+    
+    if 'DREAMS' in data_base_path:
         dataset_specification = 'dreams'
     else:
-        assert args.data == 'hdf5_data'  # Just to be sure
+        assert data_base_path == 'hdf5_data'  # Just to be sure
         dataset_specification = 'mayoieeg'
     
     data_module = HDF5SpindleDataModule(args.data, batch_size=2, num_workers=args.num_workers, annotator_spec=args.annotator_spec)
