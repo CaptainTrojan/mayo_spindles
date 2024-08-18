@@ -8,7 +8,7 @@ import json
 from tqdm import tqdm
 
 def intervals_to_mask(intervals: list[tuple[float, float]], seq_len: int, sf: int) -> np.ndarray:
-    mask = np.zeros(seq_len)
+    mask = np.zeros(seq_len, np.float32)
     for start, duration in intervals:
         end = start + duration
         mask[int(start * sf):int(end * sf)] = 1
@@ -25,7 +25,7 @@ def load_signal(data_dir, target_freq, excerpt_id):
         else:
             sf = 200
         
-        values = np.array(values)  # Single channel data
+        values = np.array(values, dtype=np.float32)  # Single channel data
         
         # Re-sample to 250 Hz
         # print(f"Excerpt {excerpt_id}: {len(values)} samples at {sf} Hz")
@@ -98,8 +98,8 @@ if __name__ == '__main__':
             y1_single_channel = ann_1[start:start + target_freq * target_duration]
             y2_single_channel = ann_2[start:start + target_freq * target_duration]
             
-            # if y1_single_channel.sum() + y2_single_channel.sum() == 0:
-            #     continue  # Skip segments without spindles
+            if y1_single_channel.sum() + y2_single_channel.sum() == 0:
+                continue  # Skip segments without spindles
             
             label_class = Evaluator.CLASSES["Partic_MID"]
             
