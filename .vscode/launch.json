@@ -26,7 +26,7 @@
             "justMyCode": false
         },
         {
-            "name": "Visualization (ours)",
+            "name": "Visualization (ours, val)",
             "type": "debugpy",
             "request": "launch",
             "program": "mayo_spindles/visualizer.py",
@@ -34,6 +34,7 @@
             "justMyCode": false,
             "args": [
                 "--data", "hdf5_data",
+                "--split", "val"
             ]
         },
         {
@@ -225,6 +226,34 @@
             "justMyCode": false,
             "args": [
                 "--seed", "42",
+            ]
+        },
+        {
+            "name": "Tag and export MEFD (val)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/tag_and_export_mefd.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--data", "hdf5_data",
+                "--model", "sd-mayoieeg-val_f_measure_avg-0.63087-simplified.onnx",
+                "--split", "val",
+                "--output", "annotations_v2_val"
+            ]
+        },
+        {
+            "name": "Tag and export MEFD (test)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/tag_and_export_mefd.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--data", "hdf5_data",
+                "--model", "sd-mayoieeg-val_f_measure_avg-0.63087-simplified.onnx",
+                "--split", "test",
+                "--output", "annotations_v2_test"
             ]
         }
     ]
