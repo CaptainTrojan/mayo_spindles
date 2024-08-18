@@ -37,7 +37,7 @@
             ]
         },
         {
-            "name": "Visualization (DREAMS, 1)",
+            "name": "Visualization (DREAMS, any, val)",
             "type": "debugpy",
             "request": "launch",
             "program": "mayo_spindles/visualizer.py",
@@ -45,7 +45,21 @@
             "justMyCode": false,
             "args": [
                 "--data", "DREAMS_HDF5",
-                "--annotator_spec", "1"
+                "--annotator_spec", "any",
+                "--split", "val"
+            ]
+        },
+        {
+            "name": "Visualization (DREAMS, any, test)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/visualizer.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--data", "DREAMS_HDF5",
+                "--annotator_spec", "any",
+                "--split", "test"
             ]
         },
         {
@@ -64,7 +78,7 @@
             "program": "mayo_spindles/run.py",
             "console": "integratedTerminal",
             "justMyCode": false,
-            "args": ["--model", "cdil", "--data", "DREAMS_HDF5", "--epochs", "5", "--batch_size", "16"]
+            "args": ["--model", "cdil", "--data", "DREAMS_HDF5", "--epochs", "5", "--batch_size", "16", "--annotator_spec", "1"]
         },
         {
             "name": "Training (smoke)",
