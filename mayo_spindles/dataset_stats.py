@@ -4,9 +4,15 @@ from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 import cProfile
 import pstats
+import argparse
 
 def main():
-    dataset = HDF5Dataset('hdf5_data', split='train', use_augmentations=True)
+    parser = argparse.ArgumentParser(description='Dataset Stats')
+    parser.add_argument('--data', type=str, default='hdf5_data', help='Path to HDF5 dataset')
+    parser.add_argument('--annotator_spec', type=str, default='', help='Annotator specification')
+    args = parser.parse_args()
+
+    dataset = HDF5Dataset(args.data, split='train', use_augmentations=True, annotator_spec=args.annotator_spec)
     spindle_lengths = []
     spindle_counts = []
     for (X, y) in tqdm(dataset, desc='Iterating over dataset', total=len(dataset)):
@@ -43,12 +49,4 @@ def main():
     fig.show()
 
 if __name__ == "__main__":
-    # Profile the main function
-    profiler = cProfile.Profile()
-    profiler.enable()
     main()
-    profiler.disable()
-
-    # Print profiling results
-    stats = pstats.Stats(profiler).sort_stats('tottime')
-    stats.print_stats(20).print_callers(20)
