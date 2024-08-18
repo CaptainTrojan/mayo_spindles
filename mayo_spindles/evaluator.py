@@ -307,6 +307,10 @@ class Evaluator:
             start = true_center - true_duration / 2
             end = true_center + true_duration / 2
             
+            # Clip stard/end to [0, seq_len]
+            start = np.clip(start, 0, seq_len)
+            end = np.clip(end, 0, seq_len)
+            
             output[j] = [start, end, confidence]
             j += 1
         
@@ -406,7 +410,7 @@ class Evaluator:
             metric(y_t, y_p)
             
     @staticmethod
-    def __sigmoid(x):
+    def sigmoid(x):
         return 1 / (1 + np.exp(-x))
 
     @staticmethod
@@ -418,9 +422,9 @@ class Evaluator:
             y_pred = Evaluator.dict_struct_from_torch_to_npy(y_pred)
             
             # Apply sigmoid to detection
-            y_pred['detection'] = Evaluator.__sigmoid(y_pred['detection'])
+            y_pred['detection'] = Evaluator.sigmoid(y_pred['detection'])
             # Apply sigmoid to segmentation
-            y_pred['segmentation'] = Evaluator.__sigmoid(y_pred['segmentation'])
+            y_pred['segmentation'] = Evaluator.sigmoid(y_pred['segmentation'])
 
         return y_true, y_pred
     
