@@ -64,7 +64,21 @@ class EfficientIntervalHead(torch.nn.Module):
 
     def __init__(self, input_size, detector_config):
         super().__init__()
-        self.share_bottleneck = detector_config['share_bottleneck']
+        assert 'mode' in detector_config, "Detector config must contain 'mode' key"
+        
+        match detector_config['mode']:
+            case 'detection_only':
+                self.share_bottleneck = True
+                self.do_segmentation = False
+            case 'shared_bottleneck':
+                self.share_bottleneck = True
+                self.do_segmentation = True
+            case 'separate_bottleneck':
+                self.share_bottleneck = False
+                self.do_segmentation = True
+            case _:
+                raise ValueError(f"Invalid mode: {detector_config['mode']}, must be one of 'detection_only', 'shared_bottleneck', 'separate_bottleneck'")
+        
         self.hidden_size = detector_config['hidden_size']
         self.conv_dropout = detector_config['conv_dropout']
         self.end_dropout = detector_config['end_dropout']
@@ -98,20 +112,22 @@ class EfficientIntervalHead(torch.nn.Module):
             # torch.nn.Sigmoid()
         )
         
-        # Segmentation head - upscale blocks back and predict the segmentation
-        self.segmentation_neck = torch.nn.Sequential(
-            *[Upscale1D(channels[i+1], channels[i], factor=factors[i], dropout=self.end_dropout) for i in range(num_layers - 2, -1, -1)],
-        )
-        self.segmentation_head = torch.nn.Sequential(
-            torch.nn.Dropout(self.end_dropout),
-            torch.nn.Linear(channels[0], 1),
-        )
+        if self.do_segmentation:
+            # Segmentation head - upscale blocks back and predict the segmentation
+            self.segmentation_neck = torch.nn.Sequential(
+                *[Upscale1D(channels[i+1], channels[i], factor=factors[i], dropout=self.end_dropout) for i in range(num_layers - 2, -1, -1)],
+            )
+            self.segmentation_head = torch.nn.Sequential(
+                torch.nn.Dropout(self.end_dropout),
+                torch.nn.Linear(channels[0], 1),
+            )
         
     def forward(self, x):
         if self.share_bottleneck:
             bottleneck = self.bottleneck(x)
             detection = self.detection_head(bottleneck.transpose(1, 2))
-            segmentation = self.segmentation_head(self.segmentation_neck(bottleneck).transpose(1, 2))
+            if self.do_segmentation:
+                segmentation = self.segmentation_head(self.segmentation_neck(bottleneck).transpose(1, 2))
         else:
             bottleneck_detection = self.bottleneck_detection(x)
             bottleneck_segmentation = self.bottleneck_segmentation(x)
@@ -119,12 +135,14 @@ class EfficientIntervalHead(torch.nn.Module):
             detection = self.detection_head(bottleneck_detection.transpose(1, 2))
             segmentation = self.segmentation_head(self.segmentation_neck(bottleneck_segmentation).transpose(1, 2))
             
+        ret = {'detection': detection}
         # Pad lost timesteps to segmentation with -1e9
-        pad = torch.ones(x.shape[0], x.shape[2] - segmentation.shape[1], 1, device=segmentation.device) * -1e9
-        segmentation = torch.cat([segmentation, pad], dim=1)
+        if self.do_segmentation:
+            pad = torch.ones(x.shape[0], x.shape[2] - segmentation.shape[1], 1, device=segmentation.device) * -1e9
+            segmentation = torch.cat([segmentation, pad], dim=1)
+            ret['segmentation'] = segmentation
         
-        return {'detection': detection, 'segmentation': segmentation}
-        
+        return ret
         
 class SpindleDetector(pl.LightningModule):   
     def __init__(self, model_name, model_config, detector_config, metric, mode):
@@ -218,7 +236,11 @@ class SpindleDetector(pl.LightningModule):
         else:
             detection_params_loss = self.mse_loss(y_pred['detection'][spindle_exists][..., 1:].sigmoid(), y_true['detection'][spindle_exists][..., 1:])
         # Loss for segmentation
-        segmentation_loss = self.bce_loss(y_pred['segmentation'], y_true['segmentation'])
+        if 'segmentation' in y_pred:
+            segmentation_loss = self.bce_loss(y_pred['segmentation'], y_true['segmentation'])
+        else:
+            # If segmentation is not present, set the loss to 0
+            segmentation_loss = 0.0
         
         loss = detection_prob_loss + detection_params_loss + segmentation_loss
             
