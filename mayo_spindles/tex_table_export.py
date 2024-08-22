@@ -36,11 +36,13 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='Train a Spindle Detector with PyTorch Lightning')
     parser.add_argument('--data', type=str, required=True, help='path to the data')
+    parser.add_argument('--annotator_spec', type=str, default='', help='annotator spec')
+    parser.add_argument('--model', type=str, required=True, help='path to the model')
     parser.add_argument('--num_workers', type=int, default=10, help='number of workers for the data loader (default: 10)')
     parser.add_argument('--draw_plots', action='store_true', help='draw plots too')
     args = parser.parse_args()
     
-    data_module = HDF5SpindleDataModule(args.data, batch_size=2, num_workers=args.num_workers)
+    data_module = HDF5SpindleDataModule(args.data, batch_size=2, num_workers=args.num_workers, annotator_spec=args.annotator_spec)
     
     # Test inference
     inferer = Inferer(data_module)
@@ -53,7 +55,8 @@ if __name__ == '__main__':
     rows = []
     
     # ONNX
-    predictions, times = inferer.infer('sd-mayoieeg-val_f_measure_avg-0.63087-simplified.onnx', 'test')
+    # predictions, times = inferer.infer('sd-mayoieeg-val_f_measure_avg-0.63087-simplified.onnx', 'test')
+    predictions, times = inferer.infer(args.model, 'test')
     eval_res = inferer.evaluate(predictions)
     if args.draw_plots: 
         visualizer.generate_prediction_plot_directory('test_onnx', predictions, False)
