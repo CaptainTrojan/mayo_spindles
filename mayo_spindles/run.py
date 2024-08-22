@@ -30,6 +30,22 @@ def str2bool(v):
         return False
     else:
         raise argparse.ArgumentTypeError('Boolean value expected.')
+    
+def trial_param(param):
+    parts = param.split('@')
+    if len(parts) < 3:
+        raise argparse.ArgumentTypeError('Invalid trial parameter format. Expected format: name@type@from@to or name@categorical@opt1,opt2,...')
+    
+    name, param_type = parts[0], parts[1]
+    if param_type == 'categorical':
+        options = parts[2].split(',')
+        return {'name': name, 'type': param_type, 'options': options}
+    else:
+        if len(parts) != 4:
+            raise argparse.ArgumentTypeError('Invalid trial parameter format. Expected format: name@type@from@to')
+        from_value, to_value = parts[2], parts[3]
+        return {'name': name, 'type': param_type, 'from': from_value, 'to': to_value}
+
 
 
 def run_training(args, dataset_specification, data_module, model_name, model_config, mode, metric, detector_config):
@@ -45,6 +61,7 @@ def run_training(args, dataset_specification, data_module, model_name, model_con
             'epochs': args.epochs,
             'annotator_spec': args.annotator_spec,
             'dataset': dataset_specification,
+            'study_name': args.optuna_study if args.optuna_study is not None else 'none',
         }
         hparams.update(detector_config)
         wandb_logger.log_hyperparams(hparams)
@@ -139,10 +156,10 @@ def run_training(args, dataset_specification, data_module, model_name, model_con
     )  
     model.eval()
     score = checkpoint_callback.best_model_score.item()
-    export_path = f"{args.checkpoint_path}/sd-{dataset_specification}-{metric}-{score:.5f}.onnx"
+    export_path = f"{args.checkpoint_path}/sd-{dataset_specification}-{detector_config['mode']}-{metric}-{score:.5f}.onnx"
     model.to_onnx(export_path, 
         input_names=['raw_signal', 'spectrogram'],
-        output_names=['detection', 'segmentation'],
+        output_names=['detection', 'segmentation'] if detector_config['mode'] != 'detection_only' else ['detection'],
         do_constant_folding=True,
         dynamic_axes={
             'raw_signal': {0: 'batch_size'},
@@ -215,13 +232,15 @@ if __name__ == '__main__':
     
     parser.add_argument('--annotator_spec', type=str, default='', help='Annotator specification')
     
-    parser.add_argument('--share_bottleneck', type=str2bool, default=True, help='whether to share the bottleneck in detect/segmentation heads (default: True)')
+    parser.add_argument('--mode', type=str, choices=['detection_only', 'shared_bottleneck', 'separate_bottleneck'], default='shared_bottleneck')
     parser.add_argument('--hidden_size', type=int, default=64, help='hidden size of the shared bottleneck (default: 64)')
     parser.add_argument('--conv_dropout', type=float, default=0.0, help='dropout rate for the convolutional layers (default: 0.0)')
     parser.add_argument('--end_dropout', type=float, default=0.0, help='dropout rate for the end layers (default: 0.0)')
     
     parser.add_argument('--optuna_study', type=str, default=None, help='Optuna study name (default: None)')
     parser.add_argument('--optuna_timeout', type=int, default=23*60*60, help='Optuna timeout in seconds (default: 23 hours)')
+    parser.add_argument('--optuna_params', type=trial_param, nargs='+', help='List of parameters in the format name@type@from@to or name@categorical@opt1,opt2,...')
+
     args = parser.parse_args()
     
     data_base_path = os.path.basename(args.data)
@@ -240,18 +259,19 @@ if __name__ == '__main__':
     else:
         model_config = {}
         
-    mode = 'max'
+    optim_mode = 'max'
     metric = 'val_f_measure_avg'
+    
+    detector_config = {
+        'mode': args.mode,
+        'hidden_size': args.hidden_size,
+        'conv_dropout': args.conv_dropout,
+        'end_dropout': args.end_dropout,
+    }
     
     if args.optuna_study is None:
         # Just run the training
-        detector_config = {
-            'share_bottleneck': args.share_bottleneck,
-            'hidden_size': args.hidden_size,
-            'conv_dropout': args.conv_dropout,
-            'end_dropout': args.end_dropout,
-        }
-        run_training(args, dataset_specification, data_module, model_name, model_config, mode, metric, detector_config)
+        run_training(args, dataset_specification, data_module, model_name, model_config, optim_mode, metric, detector_config)
     else:
         POSTGRES_PW = os.getenv("POSTGRES_PW")
         if POSTGRES_PW is None:
@@ -259,19 +279,18 @@ if __name__ == '__main__':
         
         # Define the objective
         def objective(trial: optuna.Trial):
-            share_bottleneck = trial.suggest_categorical('share_bottleneck', [True, False])
-            hidden_size = trial.suggest_int('hidden_size', 16, 128)
-            conv_dropout = trial.suggest_float('conv_dropout', 0.0, 0.5)
-            end_dropout = trial.suggest_float('end_dropout', 0.0, 0.5)
+            for param in args.optuna_params:
+                if param['type'] == 'categorical':
+                    value = trial.suggest_categorical(param['name'], param['options'])
+                elif param['type'] == 'int':
+                    value = trial.suggest_int(param['name'], int(param['from']), int(param['to']))
+                elif param['type'] == 'float':
+                    value = trial.suggest_float(param['name'], float(param['from']), float(param['to']))
+                else:
+                    raise ValueError(f"Invalid parameter type: {param['type']}")
+                detector_config[param['name']] = value
             
-            detector_config = {
-                'share_bottleneck': share_bottleneck,
-                'hidden_size': hidden_size,
-                'conv_dropout': conv_dropout,
-                'end_dropout': end_dropout,
-            }
-            
-            val_f1_avg = run_training(args, dataset_specification, data_module, model_name, model_config, mode, metric, detector_config)
+            val_f1_avg = run_training(args, dataset_specification, data_module, model_name, model_config, optim_mode, metric, detector_config)
             return -val_f1_avg
         
         # Load the Optuna trial
