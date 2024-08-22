@@ -287,6 +287,20 @@ class Evaluator:
         return y * 2 * fsamp
     
     @staticmethod
+    def detections_to_segmentation(detections: np.ndarray, seq_len: int, confidence_threshold=1e-6) -> np.ndarray:
+        # Input: [30, 3], 30 for each interval, 3 = confidence, center offset, sigmoided duration
+        # Output: [seq_len, 1], contains 0s and 1s representing the segmented spindles
+        
+        output = np.zeros((seq_len, 1), dtype=np.uint8)
+        intervals = Evaluator.detections_to_intervals(detections, seq_len, confidence_threshold)
+        intervals = Evaluator.intervals_nms(intervals)
+        
+        for start, end, _ in intervals:
+            output[int(start):int(end)+1, 0] = 1
+            
+        return output
+    
+    @staticmethod
     def detections_to_intervals(detections: np.ndarray, seq_len: int, confidence_threshold=1e-6) -> np.ndarray:
         # Input: [30, 3], 30 for each interval, 3 = confidence, center offset, sigmoided duration
         # Output: [30, 3], 30 as maximum number of spindles, 3 = start, end, confidence
@@ -424,8 +438,16 @@ class Evaluator:
             # Apply sigmoid to detection
             y_pred['detection'] = Evaluator.sigmoid(y_pred['detection'])
             # Apply sigmoid to segmentation
-            y_pred['segmentation'] = Evaluator.sigmoid(y_pred['segmentation'])
-
+            if 'segmentation' in y_pred:
+                y_pred['segmentation'] = Evaluator.sigmoid(y_pred['segmentation'])
+            else:
+                # Model does not output segmentation, convert detection to segmentation
+                segmentations = []
+                for el in y_pred['detection']:
+                    segmentations.append(Evaluator.detections_to_segmentation(el, y_true['segmentation'].shape[-2], confidence_threshold=0.5))
+                    
+                y_pred['segmentation'] = np.stack(segmentations)
+                
         return y_true, y_pred
     
     @staticmethod
