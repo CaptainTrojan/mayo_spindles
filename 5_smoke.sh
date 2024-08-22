@@ -20,4 +20,4 @@ else
   exit 1
 fi
 
-qsub -v "args=$data_args --patience 5 --model cdil --optuna_study SD-optuna-smoke-metacentrum --optuna_timeout 3000" 1_run_instance.sh
+qsub -v "args=$data_args --patience 5 --model cdil --optuna_study SD-optuna-smoke-metacentrum-$dataset --optuna_timeout 3000" 1_run_instance.sh
