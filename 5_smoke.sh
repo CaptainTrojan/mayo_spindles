@@ -20,4 +20,4 @@ else
   exit 1
 fi
 
-qsub -v "args=$data_args --patience 5 --model cdil --optuna_study SD-optuna-smoke2-metacentrum-$dataset --optuna_timeout 3000 --optuna_params mode@categorical@detection_only,shared_bottleneck,separate_bottleneck hidden_size@int@50@70" 1_run_instance.sh
+qsub -v "args=$data_args --patience 5 --model cdil --optuna_study SD-optuna-smoke2-metacentrum-$dataset --optuna_timeout 600 --optuna_params mode@categorical@detection_only,shared_bottleneck,separate_bottleneck hidden_size@int@50@70" 1_run_instance.sh
