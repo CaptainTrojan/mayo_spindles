@@ -24,5 +24,5 @@ fi
 
 for ((i=0; i<repeats; i++))
 do
-    qsub -v "args=$data_args --epochs 1000 --patience 60 --model cdil --optuna_study $optuna_study" 1_run_instance.sh
+    qsub -v "args=\"$data_args --epochs 1000 --patience 60 --model cdil --optuna_study $optuna_study --optuna_params mode@categorical@detection_only,shared_bottleneck,separate_bottleneck end_dropout@float@0.0@0.5 conv_dropout@float@0.0@0.5 hidden_size@int@50@100\"" 1_run_instance.sh
 done
