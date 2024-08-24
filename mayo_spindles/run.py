@@ -344,10 +344,17 @@ if __name__ == '__main__':
             main_metric = res['onnx/val/f1/avg']
             return main_metric
         
+        storage = optuna.storages.RDBStorage(
+            url=f"postgresql://postgres:{POSTGRES_PW}@147.228.127.28:40442",
+            heartbeat_interval=60,
+            grace_period=300,
+            failed_trial_callback=optuna.storages.RetryFailedTrialCallback(max_retry=3),
+        )
+        
         # Load the Optuna trial
         study = optuna.create_study(
             study_name=args.optuna_study,
-            storage=f"postgresql://postgres:{POSTGRES_PW}@147.228.127.28:40442",
+            storage=storage,
             load_if_exists=True,
             direction='maximize',
         )
