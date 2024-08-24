@@ -19,6 +19,7 @@ import onnxsim
 import onnx
 import os
 import optuna
+from collections import defaultdict
 
 
 def str2bool(v):
@@ -46,24 +47,49 @@ def trial_param(param):
         from_value, to_value = parts[2], parts[3]
         return {'name': name, 'type': param_type, 'from': from_value, 'to': to_value}
 
-
+def aggregate_runs(args, dataset_specification, data_module, model_name, model_config, mode, metric, detector_config):
+    num_runs = args.aggregate_runs
+    
+    if num_runs == 1:  # No need to aggregate
+        one_results = run_training(args, dataset_specification, data_module, model_name, model_config, mode, metric, detector_config)
+        ret = {}
+        for k, v in one_results.items():
+            ret[f'{k}/avg'] = v
+    else: 
+        # Setup logging manually here, because run_training will not log if num_runs > 1
+        # Logs are meaningless if num_runs > 1, so we just log the mean and 95% CI
+        run = wandb.init(project=args.project_name, config=get_hparams(args, dataset_specification, model_name, model_config, detector_config), reinit=True)
+        
+        results = defaultdict(list)
+        for i in range(num_runs):
+            one_results = run_training(args, dataset_specification, data_module, model_name, model_config, mode, metric, detector_config)
+            for k, v in one_results.items():
+                results[k].append(v)
+            
+        # Calculate mean and 95% CI
+        ret = {}
+        for k, v in results.items():
+            mean = sum(v) / num_runs
+            std_dev = (sum((x - mean) ** 2 for x in v) / num_runs) ** 0.5
+            ci = 1.96 * std_dev / (num_runs ** 0.5)
+        
+            ret[f'{k}/avg'] = mean
+            ret[f'{k}/ci95p'] = ci
+        
+        run.log(ret)
+        
+        # Wait until wandb is done syncing
+        wandb.finish(exit_code=0)
+        
+    return ret
 
 def run_training(args, dataset_specification, data_module, model_name, model_config, mode, metric, detector_config):
     model = SpindleDetector(model_name, model_config, detector_config, metric, mode)
         
-    if not args.smoke:
+    if not args.smoke and args.aggregate_runs == 1:
+        # Log only if not running a smoke test and not aggregating runs
         wandb_logger = WandbLogger(project=args.project_name)
-        hparams = {
-            'model': model_name,
-            'additional_model_config': model_config,
-            'checkpoint_path': args.checkpoint_path,
-            'patience': args.patience,
-            'epochs': args.epochs,
-            'annotator_spec': args.annotator_spec,
-            'dataset': dataset_specification,
-            'study_name': args.optuna_study if args.optuna_study is not None else 'none',
-        }
-        hparams.update(detector_config)
+        hparams = get_hparams(args, dataset_specification, model_name, model_config, detector_config)
         wandb_logger.log_hyperparams(hparams)
         model.set_wandb_logger(wandb_logger)
     else:
@@ -109,7 +135,8 @@ def run_training(args, dataset_specification, data_module, model_name, model_con
         # Plot learning rate
         fig = lr_finder.plot(suggest=True)
         fig.savefig("lr_finder.png")
-        wandb_logger.experiment.log({"lr_finder": wandb.Image(fig)})
+        if wandb_logger is not None:
+            wandb_logger.experiment.log({"lr_finder": wandb.Image(fig)})
         print(f"Suggested learning rate: {lr_finder.suggestion()}")
         model.lr = lr_finder.suggestion()
         
@@ -137,13 +164,15 @@ def run_training(args, dataset_specification, data_module, model_name, model_con
     trainer.fit(model, data_module)
     
     print("Training finished!")
-    print("Validating the best version of the model...")
     
-    # Validate the best version
-    model.report_full_stats = True
-    trainer.validate(model, data_module, ckpt_path='best')
+    # Validate the best version (if not aggregating runs)
+    if args.aggregate_runs == 1:
+        print("Validating the best version of the model...")
+
+        model.report_full_stats = True
+        trainer.validate(model, data_module, ckpt_path='best')
     
-    wandb.unwatch()
+        wandb.unwatch()
         
     # Export the model to ONNX
     model = SpindleDetector.load_from_checkpoint(
@@ -176,8 +205,9 @@ def run_training(args, dataset_specification, data_module, model_name, model_con
     else:
         onnx_path = export_path  # Use the original model if simplification failed
     
-    # Store the ONNX model in W&B
-    wandb.log_model(onnx_path, name=f'{wandb.run.name}-spindle-detector')
+    # Store the ONNX model in W&B if not aggregating runs
+    if args.aggregate_runs == 1:
+        wandb.log_model(onnx_path, name=f'{wandb.run.name}-spindle-detector')
 
     # Run inference on both validation and test sets.
     # Validation so we can verify that exporting to ONNX worked correctly.
@@ -188,29 +218,45 @@ def run_training(args, dataset_specification, data_module, model_name, model_con
     evaluation = inferer.evaluate(res)
     # Log the evaluation results (averages are sufficient)
     row_data_val = get_row_from_results('onnx', evaluation, times, full=True, include_method=False)
-    # wandb_logger.log_metrics({f'onnx/val/{k}': v for k, v in row_data.items()})
     row_data_val = {f'onnx/val/{k}': v for k, v in row_data_val.items()}
     
     res, times = inferer.infer(export_path, 'test')
     evaluation = inferer.evaluate(res)
     # Log the evaluation results (averages are sufficient)
     row_data_test = get_row_from_results('onnx', evaluation, times, full=True, include_method=False)
-    # wandb_logger.log_metrics({f'onnx/test/{k}': v for k, v in row_data.items()})
     row_data_test = {f'onnx/test/{k}': v for k, v in row_data_test.items()}
     
     # Put them in a dataframe
     merged = {**row_data_val, **row_data_test}
     kv_merged = [{'key': k, 'value': v} for k, v in merged.items()]
     df = pd.DataFrame(kv_merged)
-    # Log the dataframe
-    wandb.log({'onnx_results': wandb.Table(dataframe=df)})
-    # Log the values separately as well for w&b processing
-    wandb.log({k: v for k, v in merged.items()})
+    # Log the dataframe if not aggregating runs
+    if args.aggregate_runs == 1:
+        wandb.log({'onnx_results': wandb.Table(dataframe=df)})
+        # Log the values separately as well for w&b processing
+        wandb.log({k: v for k, v in merged.items()})
+        
+        # Wait until wandb is done syncing
+        wandb.finish(exit_code=0)
     
-    # Wait until wandb is done syncing
-    wandb.finish(exit_code=0)
-    
-    return merged['onnx/val/f1']
+    return {
+        'onnx/val/f1': merged['onnx/val/f1'],
+        'onnx/test/f1': merged['onnx/test/f1']
+    }
+
+def get_hparams(args, dataset_specification, model_name, model_config, detector_config):
+    hparams = {
+        'model': model_name,
+        'additional_model_config': model_config,
+        'checkpoint_path': args.checkpoint_path,
+        'patience': args.patience,
+        'epochs': args.epochs,
+        'annotator_spec': args.annotator_spec,
+        'dataset': dataset_specification,
+        'study_name': args.optuna_study if args.optuna_study is not None else 'none',
+    }
+    hparams.update(detector_config)
+    return hparams
 
 if __name__ == '__main__':
     model_options = ModelRepository().get_model_names()
@@ -240,6 +286,8 @@ if __name__ == '__main__':
     parser.add_argument('--optuna_study', type=str, default=None, help='Optuna study name (default: None)')
     parser.add_argument('--optuna_timeout', type=int, default=23*60*60, help='Optuna timeout in seconds (default: 23 hours)')
     parser.add_argument('--optuna_params', type=trial_param, nargs='+', help='List of parameters in the format name@type@from@to or name@categorical@opt1,opt2,...')
+    
+    parser.add_argument('--aggregate_runs', type=int, default=1, help='Number of runs to aggregate (default: 1)')
 
     args = parser.parse_args()
     
@@ -271,7 +319,9 @@ if __name__ == '__main__':
     
     if args.optuna_study is None:
         # Just run the training
-        run_training(args, dataset_specification, data_module, model_name, model_config, optim_mode, metric, detector_config)
+        res = aggregate_runs(args, dataset_specification, data_module, model_name, model_config, optim_mode, metric, detector_config)
+        for k, v in res.items():
+            print(f'{k}: {v}')
     else:
         POSTGRES_PW = os.getenv("POSTGRES_PW")
         if POSTGRES_PW is None:
@@ -290,13 +340,15 @@ if __name__ == '__main__':
                     raise ValueError(f"Invalid parameter type: {param['type']}")
                 detector_config[param['name']] = value
             
-            val_f1_avg = run_training(args, dataset_specification, data_module, model_name, model_config, optim_mode, metric, detector_config)
-            return -val_f1_avg
+            res = aggregate_runs(args, dataset_specification, data_module, model_name, model_config, optim_mode, metric, detector_config)
+            main_metric = res['onnx/val/f1/avg']
+            return main_metric
         
         # Load the Optuna trial
         study = optuna.create_study(
             study_name=args.optuna_study,
             storage=f"postgresql://postgres:{POSTGRES_PW}@147.228.127.28:40442",
             load_if_exists=True,
+            direction='maximize',
         )
         study.optimize(objective, timeout=args.optuna_timeout, gc_after_trial=True)
