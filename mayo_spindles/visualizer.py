@@ -114,6 +114,9 @@ class Visualizer(QMainWindow):
         # Draw the plot
         self.canvas.draw()
         
+        # Set status info
+        self.set_status(f"Showing element {self.idx + 1} / {len(self._dataset)}")
+        
     def draw_input(self, signal, specgrams, axs):
         # Turn off all paddings and margins
         for ax in axs:
