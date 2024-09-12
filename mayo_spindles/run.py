@@ -296,7 +296,7 @@ if __name__ == '__main__':
     if 'DREAMS' in data_base_path:
         dataset_specification = 'dreams'
     else:
-        assert data_base_path == 'hdf5_data'  # Just to be sure
+        assert data_base_path.startswith('hdf5_data'), f"Invalid data path: {args.data}, expected it to start with 'hdf5_data'"  # Just to be sure
         dataset_specification = 'mayoieeg'
     
     data_module = HDF5SpindleDataModule(args.data, batch_size=2, num_workers=args.num_workers, annotator_spec=args.annotator_spec)
