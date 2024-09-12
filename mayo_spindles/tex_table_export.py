@@ -1,6 +1,5 @@
 import argparse
 
-from model_repo.collection import ModelRepository
 from dataloader import HDF5SpindleDataModule
 from prediction_visualizer import PredictionVisualizer
 from infer import Inferer
@@ -31,15 +30,14 @@ def get_row_from_results(key, df_data, times: dict[str, float], full=False, incl
     return ret
 
 
-if __name__ == '__main__':
-    model_options = ModelRepository().get_model_names()
-    
+if __name__ == '__main__':   
     parser = argparse.ArgumentParser(description='Train a Spindle Detector with PyTorch Lightning')
     parser.add_argument('--data', type=str, required=True, help='path to the data')
     parser.add_argument('--annotator_spec', type=str, default='', help='annotator spec')
     parser.add_argument('--model', type=str, required=True, help='path to the model')
     parser.add_argument('--num_workers', type=int, default=10, help='number of workers for the data loader (default: 10)')
     parser.add_argument('--draw_plots', action='store_true', help='draw plots too')
+    parser.add_argument('--model_only', action='store_true', help='only run the model')
     args = parser.parse_args()
     
     data_module = HDF5SpindleDataModule(args.data, batch_size=2, num_workers=args.num_workers, annotator_spec=args.annotator_spec)
@@ -59,29 +57,30 @@ if __name__ == '__main__':
     predictions, times = inferer.infer(args.model, 'test')
     eval_res = inferer.evaluate(predictions)
     if args.draw_plots: 
-        visualizer.generate_prediction_plot_directory('test_onnx', predictions, False)
+        visualizer.generate_prediction_plot_directory('test_onnx', predictions)
     rows.append(get_row_from_results('test_onnx', eval_res, times))
     
-    # SUMO
-    predictions, times = inferer.infer('sumo', 'test')
-    eval_res = inferer.evaluate(predictions, should_preprocess_preds=False)
-    if args.draw_plots: 
-        visualizer.generate_prediction_plot_directory('sumo', predictions, False)
-    rows.append(get_row_from_results('sumo', eval_res, times))
-    
-    # A7
-    predictions, times = inferer.infer('a7', 'test')
-    eval_res = inferer.evaluate(predictions, should_preprocess_preds=False)
-    if args.draw_plots: 
-        visualizer.generate_prediction_plot_directory('a7', predictions, False)
-    rows.append(get_row_from_results('a7', eval_res, times))
+    if not args.model_only:    
+        # SUMO
+        predictions, times = inferer.infer('sumo', 'test')
+        eval_res = inferer.evaluate(predictions, should_preprocess_preds=False)
+        if args.draw_plots: 
+            visualizer.generate_prediction_plot_directory('sumo', predictions, False)
+        rows.append(get_row_from_results('sumo', eval_res, times))
         
-    # YASA
-    predictions, times = inferer.infer('yasa', 'test')
-    eval_res = inferer.evaluate(predictions, should_preprocess_preds=False)
-    if args.draw_plots: 
-        visualizer.generate_prediction_plot_directory('yasa', predictions, False)
-    rows.append(get_row_from_results('yasa', eval_res, times))
+        # A7
+        predictions, times = inferer.infer('a7', 'test')
+        eval_res = inferer.evaluate(predictions, should_preprocess_preds=False)
+        if args.draw_plots: 
+            visualizer.generate_prediction_plot_directory('a7', predictions, False)
+        rows.append(get_row_from_results('a7', eval_res, times))
+            
+        # YASA
+        predictions, times = inferer.infer('yasa', 'test')
+        eval_res = inferer.evaluate(predictions, should_preprocess_preds=False)
+        if args.draw_plots: 
+            visualizer.generate_prediction_plot_directory('yasa', predictions, False)
+        rows.append(get_row_from_results('yasa', eval_res, times))
 
     # Build the dataframe. 'method', 'precision', 'recall', 'f1'
     df = pd.DataFrame(rows)
