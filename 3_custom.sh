@@ -2,7 +2,7 @@
 
 # Check if the dataset, number of repeats, and other arguments are provided
 if [ -z "$1" ] || [ -z "$2" ] || [ -z "$3" ]; then
-  echo "Usage: $0 <dataset> <number_of_parallel_samplers> <other_args>"
+  echo "Usage: $0 <dataset> <number_of_repeats> <other_args>"
   echo "Options for dataset: mayoieeg, dreams"
   exit 1
 fi
