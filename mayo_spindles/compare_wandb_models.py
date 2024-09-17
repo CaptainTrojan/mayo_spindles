@@ -99,6 +99,28 @@ def main():
     plt.tight_layout()
     plt.savefig('model_comparison.png')
     
+    # Perform statistical tests to determine if the differences in means are significant
+    # Perform a Kruskal-Wallis test for each metric
+    p_values = []
+    target_metrics = ['det_f1_f_measure', 'seg_iou_jaccard_index', 'det_auc_ap_average_precision', 'seg_auc_ap_average_precision']
+    for metric in target_metrics:
+        for excluded_group in results.keys():
+            included_groups = [group for group in results.keys() if group != excluded_group]
+            # Filter out the excluded group
+            data = [results[group][metric] for group in included_groups]
+            _, p = stats.kruskal(*data)
+            better = None if p > 0.05 else (included_groups[0] if data[0].mean() > data[1].mean() else included_groups[1])
+            p_values.append({'metric': metric,
+                             'included_groups': f"{included_groups[0]}_{included_groups[1]}",
+                             'p_value': p,
+                             'significant': p < 0.05,
+                             'better': better
+                             })
+            
+    # Save the p-values to a CSV file
+    p_values = pd.DataFrame(p_values)
+    p_values.to_csv('model_comparison_p_values.csv')
+    
     # Save the results and the mean CI
     joined.to_csv('model_comparison.csv')
     mean_ci.to_csv('model_comparison_mean_ci.csv')
