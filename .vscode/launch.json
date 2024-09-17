@@ -38,6 +38,18 @@
             ]
         },
         {
+            "name": "Visualization (ours, val , corrected)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/visualizer.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--data", "hdf5_data_corrected",
+                "--split", "val"
+            ]
+        },
+        {
             "name": "Visualization (DREAMS, any, val)",
             "type": "debugpy",
             "request": "launch",
@@ -64,13 +76,40 @@
             ]
         },
         {
-            "name": "Training (ours)",
+            "name": "Training (ours, agg=1)",
             "type": "debugpy",
             "request": "launch",
             "program": "mayo_spindles/run.py",
             "console": "integratedTerminal",
             "justMyCode": false,
-            "args": ["--model", "cdil", "--data", "hdf5_data", "--epochs", "5", "--batch_size", "16"]
+            "args": ["--model", "cdil", "--data", "hdf5_data", "--epochs", "5", "--batch_size", "16", "--mode", "detection_only", "--aggregate_runs", "1"]
+        },
+        {
+            "name": "Training (ours, agg=2)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/run.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": ["--model", "cdil", "--data", "hdf5_data", "--epochs", "5", "--batch_size", "16", "--mode", "detection_only", "--aggregate_runs", "2"]
+        },
+        {
+            "name": "Training (ours, optuna)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/run.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": ["--model", "cdil", "--data", "hdf5_data", "--epochs", "5", "--batch_size", "16", 
+                    "--optuna_study", "smoke-local-test",
+                    "--optuna_timeout", "300",
+                    "--optuna_params",
+                        "mode@categorical@detection_only,shared_bottleneck,separate_bottleneck",
+                        "hidden_size@int@50@70"
+            ],
+            "env": {
+                "POSTGRES_PW": "31optuna42rocks",
+            }
         },
         {
             "name": "Training (DREAMS)",
@@ -80,19 +119,6 @@
             "console": "integratedTerminal",
             "justMyCode": false,
             "args": ["--model", "cdil", "--data", "DREAMS_HDF5", "--epochs", "5", "--batch_size", "16", "--annotator_spec", "1"]
-        },
-        {
-            "name": "Training (ours, optuna)",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "mayo_spindles/run.py",
-            "console": "integratedTerminal",
-            "justMyCode": false,
-            "args": ["--model", "cdil", "--data", "hdf5_data", "--epochs", "5", "--batch_size", "16", "--optuna_study", "SD-ours-test123", "--optuna_timeout", "300"],
-            "env":
-            {
-                "POSTGRES_PW": "31optuna42rocks",
-            }
         },
         {
             "name": "Training (smoke)",
@@ -207,14 +233,94 @@
             ]
         },
         {
-            "name": "Export tex tables",
+            "name": "Export tex tables (ours, tagger model)",
             "type": "debugpy",
             "request": "launch",
             "program": "mayo_spindles/tex_table_export.py",
             "console": "integratedTerminal",
             "justMyCode": false,
             "args": [
-                "--data", "hdf5_data",
+                "--data", "hdf5_data_corrected",
+                "--model", "sd-mayoieeg-val_f_measure_avg-0.63087-simplified.onnx"
+            ]
+        },
+        {
+            "name": "Export tex tables (ours, mediocre model)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/tex_table_export.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--data", "hdf5_data_corrected",
+                "--model", "sd-mayoieeg-separate_bottleneck-val_f_measure_avg-0.61314-simplified.onnx"
+            ]
+        },
+        {
+            "name": "Export tex tables (ours, shbtnk 1)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/tex_table_export.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--data", "hdf5_data_corrected",
+                "--model", "sd-mayoieeg-shared_bottleneck-val_f_measure_avg-0.68852-simplified.onnx",
+                "--model_only"
+            ]
+        },
+        {
+            "name": "Export tex tables (ours, shbtnk 1, segboost)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/tex_table_export.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--data", "hdf5_data_corrected",
+                "--model", "sd-mayoieeg-shared_bottleneck-val_f_measure_avg-0.68852-simplified.onnx",
+                "--model_only",
+                "--segmentation_boost"
+            ]
+        },
+        {
+            "name": "Export tex tables (ours, shbtnk 2)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/tex_table_export.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--data", "hdf5_data_corrected",
+                "--model", "sd-mayoieeg-shared_bottleneck-val_f_measure_avg-0.69231-simplified.onnx",
+                "--model_only"
+            ]
+        },
+        {
+            "name": "Export tex tables (ours, shbtnk 2, segboost)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/tex_table_export.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--data", "hdf5_data_corrected",
+                "--model", "sd-mayoieeg-shared_bottleneck-val_f_measure_avg-0.69231-simplified.onnx",
+                "--model_only",
+                "--segmentation_boost"
+            ]
+        },
+        {
+            "name": "Export tex tables (DREAMS)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/tex_table_export.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--data", "DREAMS_HDF5",
+                "--model", "sd-dreams-val_f_measure_avg-0.75188-simplified.onnx",
+                "--annotator_spec", "any"
             ]
         },
         {
@@ -255,6 +361,100 @@
                 "--split", "test",
                 "--output", "annotations_v2_test"
             ]
-        }
+        },
+        {
+            "name": "Load corrected annotations (val)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/activelearning_load.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--data", "annotations_v2_val",
+                "--split", "val",
+                "--source_dataset", "hdf5_data",
+                "--annotations", "annotations_v2_val/annotations_corrected_val.xml",
+                "--output", "hdf5_data_corrected_val",
+            ]
+        },
+        {
+            "name": "Load corrected annotations (test | val)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/activelearning_load.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--data", "annotations_v2_test",
+                "--split", "test",
+                "--source_dataset", "hdf5_data_corrected_val",
+                "--annotations", "annotations_v2_test/annotations_corrected_test.xml",
+                "--output", "hdf5_data_corrected",
+            ]
+        },
+        {
+            "name": "Optuna studies summary",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/optuna_studies_summary.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "POSTGRES_PW": "31optuna42rocks",
+            }
+        },
+        {
+            "name": "Download latest models (30 -> onnx_models)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/download_wandb_models.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "-n", "30",
+                "-o", "onnx_models",
+                "--force_overwrite"
+            ]
+        },
+        {
+            "name": "Compare latest models (30, onnx_models, ours)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/compare_wandb_models.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+        },
+        {
+            "name": "Export tex tables (ours, val, best shb)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/tex_table_export.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--data", "hdf5_data_corrected",
+                "--model", "onnx_models\\cool-pyramid-2750-shared_bottleneck-val_f_measure_avg-0.69281-simplified.onnx",
+                "--model_only",
+                "--draw_plots",
+                // "--draw_auc_ap",
+                "--split", "val"
+            ]
+        },        
+        {
+            "name": "Export tex tables (ours, val, best det_only)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/tex_table_export.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--data", "hdf5_data_corrected",
+                "--model", "sd-mayoieeg-detection_only-val_f_measure_avg-0.70552-simplified.onnx",
+                "--model_only",
+                "--draw_plots",
+                // "--draw_auc_ap",
+                "--split", "val"
+            ]
+        },
     ]
 }
