@@ -114,7 +114,7 @@ def run_training(args, dataset_specification, data_module, model_name, model_con
     trainer = pl.Trainer(
         accelerator='gpu',
         max_epochs=args.epochs if not args.smoke else 1,
-        enable_checkpointing=not args.smoke,
+        enable_checkpointing=True,
         callbacks=[swa_callback, checkpoint_callback, early_stopping_callback, lr_monitor],
         logger=wandb_logger,
         log_every_n_steps=10,
