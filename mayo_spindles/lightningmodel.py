@@ -50,18 +50,32 @@ class Upscale1D(torch.nn.Module):
         x = self.conv(x)
         x = self.act(x)
         return x
-
     
+class Downscale1DWithIntermediate(torch.nn.Module):
+    def __init__(self, in_channels, out_channels, factor=2, dropout=0.0):
+        super().__init__()
+        self.downscale = Downscale1D(in_channels, out_channels, factor, dropout)
+    
+    def forward(self, x):
+        x = self.downscale(x)
+        return x
+
+class BottleneckWithIntermediates(torch.nn.Module):
+    def __init__(self, channels, factors, dropout):
+        super().__init__()
+        self.layers = torch.nn.ModuleList(
+            [Downscale1DWithIntermediate(channels[i], channels[i + 1], factor=factors[i], dropout=dropout) for i in range(len(channels) - 1)]
+        )
+    
+    def forward(self, x):
+        intermediates = []
+        for layer in self.layers:
+            x = layer(x)
+            intermediates.append(x)
+        return x, intermediates
+
+
 class EfficientIntervalHead(torch.nn.Module):
-    """
-    This class defines the head of the model that will be used for interval detection.
-    This head actually implements two heads, one for interval detection and the other for segmentation.
-    The key is that they can share the same bottleneck layers.
-    
-    Input: [batch, seq_len, num_channels]
-    Output: {'intervals': [batch, 2] (start, end), 'segmentation': [batch, seq_len]}
-    """
-
     def __init__(self, input_size, detector_config):
         super().__init__()
         assert 'mode' in detector_config, "Detector config must contain 'mode' key"
@@ -88,34 +102,23 @@ class EfficientIntervalHead(torch.nn.Module):
         num_layers = len(channels)
         
         if self.share_bottleneck:
-            self.bottleneck = torch.nn.Sequential(
-                *[Downscale1D(channels[i], channels[i + 1], factor=factors[i], dropout=self.conv_dropout) for i in range(num_layers - 1)]
-            )
+            self.bottleneck = BottleneckWithIntermediates(channels, factors, self.conv_dropout)
         else:
-            self.bottleneck_detection = torch.nn.Sequential(
-                *[Downscale1D(channels[i], channels[i + 1], factor=factors[i], dropout=self.conv_dropout) for i in range(num_layers - 1)]
-            )
-            
-            self.bottleneck_segmentation = torch.nn.Sequential(
-                *[Downscale1D(channels[i], channels[i + 1], factor=factors[i], dropout=self.conv_dropout) for i in range(num_layers - 1)]
-            )
+            self.bottleneck_detection = BottleneckWithIntermediates(channels, factors, self.conv_dropout)
+            self.bottleneck_segmentation = BottleneckWithIntermediates(channels, factors, self.conv_dropout)
         
-        # Detection head - for each block, predict:
-        # - whether it contains a spindle
-        # - where is the spindle center
-        # - what is the spindle duration
+        # Detection head
         self.detection_head = torch.nn.Sequential(
-            torch.nn.Linear(channels[num_layers-1], channels[num_layers-1]),
+            torch.nn.Linear(channels[-1], channels[-1]),
             torch.nn.Dropout(self.conv_dropout),
             torch.nn.SiLU(),
-            torch.nn.Linear(channels[num_layers-1], 3),
-            # torch.nn.Sigmoid()
+            torch.nn.Linear(channels[-1], 3),
         )
         
         if self.do_segmentation:
-            # Segmentation head - upscale blocks back and predict the segmentation
-            self.segmentation_neck = torch.nn.Sequential(
-                *[Upscale1D(channels[i+1], channels[i], factor=factors[i], dropout=self.end_dropout) for i in range(num_layers - 2, -1, -1)],
+            # Segmentation head with intermediate features
+            self.segmentation_neck = torch.nn.ModuleList(
+                [Upscale1D(channels[i+1], channels[i], factor=factors[i], dropout=self.end_dropout) for i in range(num_layers - 2, -1, -1)]
             )
             self.segmentation_head = torch.nn.Sequential(
                 torch.nn.Dropout(self.end_dropout),
@@ -124,25 +127,41 @@ class EfficientIntervalHead(torch.nn.Module):
         
     def forward(self, x):
         if self.share_bottleneck:
-            bottleneck = self.bottleneck(x)
-            detection = self.detection_head(bottleneck.transpose(1, 2))
+            bottleneck_output, intermediates = self.bottleneck(x)
+            detection = self.detection_head(bottleneck_output.transpose(1, 2))
             if self.do_segmentation:
-                segmentation = self.segmentation_head(self.segmentation_neck(bottleneck).transpose(1, 2))
+                # Use intermediate features in the segmentation neck
+                segmentation = intermediates[-1]
+                for i, upscale in enumerate(self.segmentation_neck[:-1]):
+                    segmentation = upscale(segmentation)
+                    # Add residual connection from corresponding intermediate feature
+                    segmentation += intermediates[-(i+2)]
+                # Apply last upscale and segmentation head
+                segmentation = self.segmentation_neck[-1](segmentation)                
+                segmentation = self.segmentation_head(segmentation.transpose(1, 2))
         else:
-            bottleneck_detection = self.bottleneck_detection(x)
-            bottleneck_segmentation = self.bottleneck_segmentation(x)
+            bottleneck_detection, _ = self.bottleneck_detection(x)
+            _, intermediates = self.bottleneck_segmentation(x)
             
             detection = self.detection_head(bottleneck_detection.transpose(1, 2))
-            segmentation = self.segmentation_head(self.segmentation_neck(bottleneck_segmentation).transpose(1, 2))
-            
+            if self.do_segmentation:
+                segmentation = intermediates[-1]
+                for i, upscale in enumerate(self.segmentation_neck[:-1]):
+                    segmentation = upscale(segmentation)
+                    # Add residual connection from corresponding intermediate feature
+                    segmentation += intermediates[-(i+2)]
+                # Apply last upscale and segmentation head
+                segmentation = self.segmentation_neck[-1](segmentation)  
+                segmentation = self.segmentation_head(segmentation.transpose(1, 2))
+        
         ret = {'detection': detection}
-        # Pad lost timesteps to segmentation with -1e9
         if self.do_segmentation:
             pad = torch.ones(x.shape[0], x.shape[2] - segmentation.shape[1], 1, device=segmentation.device) * -1e9
             segmentation = torch.cat([segmentation, pad], dim=1)
             ret['segmentation'] = segmentation
         
         return ret
+
         
 class SpindleDetector(pl.LightningModule):   
     def __init__(self, model_name, model_config, detector_config, metric, mode):
