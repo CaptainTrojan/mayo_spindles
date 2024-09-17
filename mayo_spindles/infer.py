@@ -2,7 +2,7 @@ import onnxruntime as ort
 import torch
 import numpy as np
 from tqdm import tqdm
-from evaluator import Evaluator
+from postprocessing import Evaluator
 from yasa_util import yasa_predict
 from sumo.scripts.sumo_util import infer_a7, infer_sumo
 from dataloader import HDF5SpindleDataModule
@@ -43,14 +43,18 @@ class Inferer:
         return X, Y_true, Y_pred
     
     @staticmethod
-    def __infer_torch(inputs, model):
+    def __infer_torch(inputs, model, segmentation_boost=False):
         # PyTorch inference
         outputs = model(inputs)
         outputs = Evaluator.dict_struct_from_torch_to_npy(outputs)
+        
+        if segmentation_boost:
+            outputs = Evaluator.apply_segmentation_boost(outputs)
+            
         return outputs
     
     @staticmethod
-    def __infer_onnx(inputs, model):
+    def __infer_onnx(inputs, model, segmentation_boost=False):
         # ONNX inference
         ort_inputs = {}
         for model_input in model.get_inputs():
@@ -62,6 +66,9 @@ class Inferer:
         ort_outs = model.run(None, ort_inputs)
         outputs = {output.name: ort_outs[i] for i, output in enumerate(model.get_outputs())}
         
+        if segmentation_boost:
+            outputs = Evaluator.apply_segmentation_boost(outputs)
+            
         return outputs
     
     @staticmethod
@@ -108,12 +115,12 @@ class Inferer:
         is_our_model = True
         if isinstance(model, torch.nn.Module):
             infer_fn = self.__infer_torch
-            infer_fn_kwargs = {'model': model}
+            infer_fn_kwargs = {'model': model, 'segmentation_boost': model_params.get('segmentation_boost', False)}
         elif isinstance(model, str):
             if model.endswith('.onnx'):
                 model = ort.InferenceSession(model)
                 infer_fn = self.__infer_onnx
-                infer_fn_kwargs = {'model': model}
+                infer_fn_kwargs = {'model': model, 'segmentation_boost': model_params.get('segmentation_boost', False)}
             else:
                 is_our_model = False
                 match model:
@@ -145,8 +152,16 @@ class Inferer:
 
         infer_times = []
         predictions = []
+        
+        if isinstance(model, torch.nn.Module):
+            model_str_rep = model.__class__.__name__
+        elif isinstance(model, ort.InferenceSession):
+            model_str_rep = model._model_path
+        else:
+            model_str_rep = model
+        
         with torch.no_grad():
-            for i, batch in enumerate(tqdm(data_loader, desc=f'Inference on {split} split')):
+            for i, batch in enumerate(tqdm(data_loader, desc=f'{model_str_rep}, {self.data_module.data_dir}@{split}')):
                 if max_elems != -1 and i >= max_elems:
                     break
 
@@ -189,5 +204,7 @@ class Inferer:
         evaluator = Evaluator()
         evaluator.add_metric('det_f1', Evaluator.DETECTION_F_MEASURE)
         evaluator.add_metric('seg_iou', Evaluator.SEGMENTATION_JACCARD_INDEX)
+        evaluator.add_metric('det_auc_ap', Evaluator.DETECTION_AUROC_AP)
+        evaluator.add_metric('seg_auc_ap', Evaluator.SEGMENTATION_AUROC_AP)
         evaluator.batch_evaluate(y_true, y_pred, should_preprocess_preds)
         return evaluator.results()
