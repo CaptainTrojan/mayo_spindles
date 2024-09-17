@@ -161,7 +161,7 @@ class Inferer:
             model_str_rep = model
         
         with torch.no_grad():
-            for i, batch in enumerate(tqdm(data_loader, desc=f'{model_str_rep}, {self.data_module.data_dir}@{split}')):
+            for i, batch in enumerate(tqdm(data_loader, desc=f'{model_str_rep[-30:]}, {self.data_module.data_dir}@{split}')):
                 if max_elems != -1 and i >= max_elems:
                     break
 
