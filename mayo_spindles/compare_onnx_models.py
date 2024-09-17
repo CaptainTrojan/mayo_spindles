@@ -25,6 +25,7 @@ def main():
     parser.add_argument('--model_dir', type=str, default='onnx_models', help='path to the model directory')
     parser.add_argument('--data', type=str, default='hdf5_data_corrected', help='path to the data')
     parser.add_argument('--annotator_spec', type=str, default='', help='annotator spec')
+    parser.add_argument('--output_dir', type=str, default='output', help='path to the output directory')
 
     args = parser.parse_args()
 
@@ -97,7 +98,7 @@ def main():
         fig.delaxes(axes[j])
 
     plt.tight_layout()
-    plt.savefig('model_comparison.png')
+    plt.savefig(os.path.join(args.output_dir, 'model_comparison.png'))
     
     # Perform statistical tests to determine if the differences in means are significant
     # Perform a Kruskal-Wallis test for each metric
@@ -119,11 +120,11 @@ def main():
             
     # Save the p-values to a CSV file
     p_values = pd.DataFrame(p_values)
-    p_values.to_csv('model_comparison_p_values.csv')
+    p_values.to_csv(os.path.join(args.output_dir, 'model_comparison_p_values.csv'))
     
     # Save the results and the mean CI
-    joined.to_csv('model_comparison.csv')
-    mean_ci.to_csv('model_comparison_mean_ci.csv')
+    joined.to_csv(os.path.join(args.output_dir, 'model_comparison.csv'))
+    mean_ci.to_csv(os.path.join(args.output_dir, 'model_comparison_mean_ci.csv'))
 
 if __name__ == "__main__":
     main()
