@@ -6,6 +6,7 @@ checkpoints/
 *.ckpt
 /data/
 hdf5_data/
+hdf5_data_corrected*
 predictions*/
 DatabaseSpindles/
 edfs/
@@ -13,3 +14,9 @@ edfs/
 DREAMS_HDF5/
 *.xml
 *.zip
+*.onnx
+# *.png
+# *.html
+model_comparison*
+pr_micro*png
+roc_micro*png
