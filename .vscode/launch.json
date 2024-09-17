@@ -121,13 +121,31 @@
             "args": ["--model", "cdil", "--data", "DREAMS_HDF5", "--epochs", "5", "--batch_size", "16", "--annotator_spec", "1"]
         },
         {
-            "name": "Training (smoke)",
+            "name": "Training (smoke, shared_bottleneck)",
             "type": "debugpy",
             "request": "launch",
             "program": "mayo_spindles/run.py",
             "console": "integratedTerminal",
             "justMyCode": false,
-            "args": ["--model", "cdil", "--data", "hdf5_data", "--smoke"]
+            "args": ["--model", "cdil", "--data", "hdf5_data_corrected", "--smoke", "--mode", "shared_bottleneck"]
+        },
+        {
+            "name": "Training (smoke, detection_only)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/run.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": ["--model", "cdil", "--data", "hdf5_data_corrected", "--smoke", "--mode", "detection_only"]
+        },
+        {
+            "name": "Training (smoke, separate_bottleneck)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/run.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": ["--model", "cdil", "--data", "hdf5_data_corrected", "--smoke", "--mode", "separate_bottleneck"]
         },
         {
             "name": "Export Dataset",
@@ -404,7 +422,7 @@
             }
         },
         {
-            "name": "Download latest models (30 -> onnx_models)",
+            "name": "Download latest models (30 -> onnx_models_dreams)",
             "type": "debugpy",
             "request": "launch",
             "program": "mayo_spindles/download_wandb_models.py",
@@ -412,17 +430,49 @@
             "justMyCode": false,
             "args": [
                 "-n", "30",
-                "-o", "onnx_models",
+                "-o", "onnx_models_dreams",
                 "--force_overwrite"
             ]
         },
         {
-            "name": "Compare latest models (30, onnx_models, ours)",
+            "name": "Download latest models (30 -> onnx_models_mayoieeg)",
             "type": "debugpy",
             "request": "launch",
-            "program": "mayo_spindles/compare_wandb_models.py",
+            "program": "mayo_spindles/download_wandb_models.py",
             "console": "integratedTerminal",
             "justMyCode": false,
+            "args": [
+                "-n", "30",
+                "-o", "onnx_models_mayoieeg",
+                "--force_overwrite"
+            ]
+        },
+        {
+            "name": "Compare models (mayoieeg)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/compare_onnx_models.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--data", "hdf5_data_corrected",
+                "--model_dir", "onnx_models_mayoieeg",
+                "--output_dir", "results_mayoieeg",
+            ]   
+        },
+        {
+            "name": "Compare models (DREAMS)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/compare_onnx_models.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--data", "DREAMS_HDF5",
+                "--annotator_spec", "any",
+                "--model_dir", "onnx_models_dreams",
+                "--output_dir", "results_dreams",
+            ]   
         },
         {
             "name": "Export tex tables (ours, val, best shb)",
