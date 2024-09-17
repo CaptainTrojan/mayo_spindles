@@ -4,7 +4,7 @@ import torch
 import wandb
 
 from prediction_visualizer import PredictionVisualizer
-from evaluator import Evaluator
+from postprocessing import Evaluator
 
 from model_repo.collection import ModelRepository
 

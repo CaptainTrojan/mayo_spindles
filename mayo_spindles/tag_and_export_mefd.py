@@ -8,7 +8,7 @@ from dataloader import HDF5SpindleDataModule
 from best.annotations.io import save_CyberPSG
 from mef_tools import MefWriter, MefReader
 import pandas as pd
-from evaluator import Evaluator
+from postprocessing import Evaluator
 import shutil
 
 if __name__ == '__main__':

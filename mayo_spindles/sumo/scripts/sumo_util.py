@@ -11,7 +11,7 @@ import torch
 from scipy.stats import zscore
 from torch.utils.data import Dataset, DataLoader
 
-from evaluator import Evaluator
+from postprocessing import Evaluator
 from sumo.scripts.a7.butter_filter import butter_bandpass_filter, downsample
 from sumo.scripts.a7.detect_spindles import detect_spindles
 

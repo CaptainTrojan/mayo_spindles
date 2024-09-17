@@ -4,7 +4,7 @@ import numpy as np
 import sys
 import os
 
-from evaluator import Evaluator
+from postprocessing import Evaluator
 
 class OutputSuppressor:
     def __init__(self):

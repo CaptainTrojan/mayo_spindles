@@ -14,7 +14,7 @@ from scipy import signal
 from pytorch_lightning import LightningDataModule
 import warnings
 import h5py
-from evaluator import Evaluator
+from postprocessing import Evaluator
 import pywt
 
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="pymef.mef_session", lineno=1391)

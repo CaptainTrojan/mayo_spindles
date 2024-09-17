@@ -3,7 +3,7 @@ import numpy as np
 import torch
 import matplotlib.patches as patches
 from datetime import datetime
-from evaluator import Evaluator
+from postprocessing import Evaluator
 import os
 from tqdm import tqdm
 import shutil

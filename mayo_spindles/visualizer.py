@@ -8,7 +8,7 @@ import numpy as np
 import datetime
 import argparse
 from dataloader import HDF5Dataset
-from evaluator import Evaluator
+from postprocessing import Evaluator
 import yasa_util
 from PyQt5.QtGui import QTextCursor, QFont
 

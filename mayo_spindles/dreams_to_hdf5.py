@@ -3,7 +3,7 @@ from export_hdf5_dataset import __convert_to_scalogram, artefactness
 import numpy as np
 import h5py
 import os
-from evaluator import Evaluator
+from postprocessing import Evaluator
 import json
 from tqdm import tqdm
 

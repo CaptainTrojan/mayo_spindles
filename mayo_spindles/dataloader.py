@@ -6,7 +6,7 @@ import os
 import numpy as np
 from pytorch_lightning import LightningDataModule
 import h5py
-from evaluator import Evaluator
+from postprocessing import Evaluator
 import pywt
 
 
@@ -237,12 +237,12 @@ class HDF5SpindleDataModule(LightningDataModule):
         
     def train_dataloader(self):
         return DataLoader(self.train_dataset, batch_size=self.batch_size, num_workers=self.num_workers,
-                           persistent_workers=True, shuffle=True, collate_fn=HDF5Dataset.collate_fn)
+                           persistent_workers=self.num_workers>0, shuffle=True, collate_fn=HDF5Dataset.collate_fn)
 
     def val_dataloader(self):
         return DataLoader(self.val_dataset, batch_size=self.batch_size, num_workers=self.num_workers,
-                          persistent_workers=True, collate_fn=HDF5Dataset.collate_fn)
+                          persistent_workers=self.num_workers>0, collate_fn=HDF5Dataset.collate_fn)
 
     def test_dataloader(self):
         return DataLoader(self.test_dataset, batch_size=self.batch_size, num_workers=self.num_workers,
-                          persistent_workers=True, collate_fn=HDF5Dataset.collate_fn)
+                          persistent_workers=self.num_workers>0, collate_fn=HDF5Dataset.collate_fn)
