@@ -15,9 +15,12 @@ class PredictionVisualizer:
         self.evaluator.add_metric('det_f1', Evaluator.DETECTION_F_MEASURE)
         self.evaluator.add_metric('seg_iou', Evaluator.SEGMENTATION_JACCARD_INDEX)
         
-    def generate_prediction_plot_directory(self, name, predictions, should_preprocess_preds=True):
+    def generate_prediction_plot_directory(self, root, name, predictions, should_preprocess_preds=True):
         x_all, y_true_all, y_pred_all = predictions
-        full_name = f"predictions_{name}"
+        
+        os.makedirs(root, exist_ok=True)
+        
+        full_name = os.path.join(root, name)
         
         if os.path.exists(full_name):
             # Delete previous contents
