@@ -19,6 +19,8 @@ def calc_mean_ci(data, confidence=0.95):
     ci = se * stats.t.ppf((1 + confidence) / 2., n-1)
     return mean, mean - ci, mean + ci
 
+def get_grouping(name):
+    return name.split('-')[3]  # returns 'detection_only', 'shared_bottleneck' or 'separate_bottleneck'
 
 def main():
     parser = argparse.ArgumentParser(description='Compare trained models (head configurations)')
@@ -31,9 +33,6 @@ def main():
 
     dm = HDF5SpindleDataModule(args.data, annotator_spec=args.annotator_spec, num_workers=0)
     inferer = Inferer(dm)
-
-    def get_grouping(name):
-        return name.split('-')[3]  # returns 'detection_only', 'shared_bottleneck' or 'separate_bottleneck'
 
     # Load each model and store metrics
     results = defaultdict(list)
@@ -96,12 +95,15 @@ def main():
     # Remove any unused subplots
     for j in range(i+1, len(axes)):
         fig.delaxes(axes[j])
-
+        
+    # Create the directory if it does not exist
+    os.makedirs(args.output_dir, exist_ok=True)    
+    
     plt.tight_layout()
     plt.savefig(os.path.join(args.output_dir, 'model_comparison.png'))
     
     # Perform statistical tests to determine if the differences in means are significant
-    # Perform a Kruskal-Wallis test for each metric
+    # Perform Mann-Whitney U test for each metric
     p_values = []
     target_metrics = ['det_f1_f_measure', 'seg_iou_jaccard_index', 'det_auc_ap_average_precision', 'seg_auc_ap_average_precision']
     for metric in target_metrics:
@@ -109,7 +111,7 @@ def main():
             included_groups = [group for group in results.keys() if group != excluded_group]
             # Filter out the excluded group
             data = [results[group][metric] for group in included_groups]
-            _, p = stats.kruskal(*data)
+            _, p = stats.mannwhitneyu(data[0], data[1], alternative='two-sided')
             better = None if p > 0.05 else (included_groups[0] if data[0].mean() > data[1].mean() else included_groups[1])
             p_values.append({'metric': metric,
                              'included_groups': f"{included_groups[0]}_{included_groups[1]}",
