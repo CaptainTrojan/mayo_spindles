@@ -251,97 +251,6 @@
             ]
         },
         {
-            "name": "Export tex tables (ours, tagger model)",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "mayo_spindles/tex_table_export.py",
-            "console": "integratedTerminal",
-            "justMyCode": false,
-            "args": [
-                "--data", "hdf5_data_corrected",
-                "--model", "sd-mayoieeg-val_f_measure_avg-0.63087-simplified.onnx"
-            ]
-        },
-        {
-            "name": "Export tex tables (ours, mediocre model)",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "mayo_spindles/tex_table_export.py",
-            "console": "integratedTerminal",
-            "justMyCode": false,
-            "args": [
-                "--data", "hdf5_data_corrected",
-                "--model", "sd-mayoieeg-separate_bottleneck-val_f_measure_avg-0.61314-simplified.onnx"
-            ]
-        },
-        {
-            "name": "Export tex tables (ours, shbtnk 1)",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "mayo_spindles/tex_table_export.py",
-            "console": "integratedTerminal",
-            "justMyCode": false,
-            "args": [
-                "--data", "hdf5_data_corrected",
-                "--model", "sd-mayoieeg-shared_bottleneck-val_f_measure_avg-0.68852-simplified.onnx",
-                "--model_only"
-            ]
-        },
-        {
-            "name": "Export tex tables (ours, shbtnk 1, segboost)",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "mayo_spindles/tex_table_export.py",
-            "console": "integratedTerminal",
-            "justMyCode": false,
-            "args": [
-                "--data", "hdf5_data_corrected",
-                "--model", "sd-mayoieeg-shared_bottleneck-val_f_measure_avg-0.68852-simplified.onnx",
-                "--model_only",
-                "--segmentation_boost"
-            ]
-        },
-        {
-            "name": "Export tex tables (ours, shbtnk 2)",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "mayo_spindles/tex_table_export.py",
-            "console": "integratedTerminal",
-            "justMyCode": false,
-            "args": [
-                "--data", "hdf5_data_corrected",
-                "--model", "sd-mayoieeg-shared_bottleneck-val_f_measure_avg-0.69231-simplified.onnx",
-                "--model_only"
-            ]
-        },
-        {
-            "name": "Export tex tables (ours, shbtnk 2, segboost)",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "mayo_spindles/tex_table_export.py",
-            "console": "integratedTerminal",
-            "justMyCode": false,
-            "args": [
-                "--data", "hdf5_data_corrected",
-                "--model", "sd-mayoieeg-shared_bottleneck-val_f_measure_avg-0.69231-simplified.onnx",
-                "--model_only",
-                "--segmentation_boost"
-            ]
-        },
-        {
-            "name": "Export tex tables (DREAMS)",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "mayo_spindles/tex_table_export.py",
-            "console": "integratedTerminal",
-            "justMyCode": false,
-            "args": [
-                "--data", "DREAMS_HDF5",
-                "--model", "sd-dreams-val_f_measure_avg-0.75188-simplified.onnx",
-                "--annotator_spec", "any"
-            ]
-        },
-        {
             "name": "Dreams to HDF5",
             "type": "debugpy",
             "request": "launch",
@@ -475,7 +384,7 @@
             ]   
         },
         {
-            "name": "Export tex tables (ours, val, best shb)",
+            "name": "Export tex tables (mayoieeg, tagger model)",
             "type": "debugpy",
             "request": "launch",
             "program": "mayo_spindles/tex_table_export.py",
@@ -483,15 +392,16 @@
             "justMyCode": false,
             "args": [
                 "--data", "hdf5_data_corrected",
-                "--model", "onnx_models\\cool-pyramid-2750-shared_bottleneck-val_f_measure_avg-0.69281-simplified.onnx",
-                "--model_only",
-                "--draw_plots",
+                "--model_dir", "special_models",
+                "--variant", "all",
+                // "--model_only",
+                // "--draw_plots",
                 // "--draw_auc_ap",
-                "--split", "val"
+                "--output", "tagger_eval",
             ]
-        },        
+        },
         {
-            "name": "Export tex tables (ours, val, best det_only)",
+            "name": "Export tex tables (mayoieeg, separate_bottleneck)",
             "type": "debugpy",
             "request": "launch",
             "program": "mayo_spindles/tex_table_export.py",
@@ -499,11 +409,43 @@
             "justMyCode": false,
             "args": [
                 "--data", "hdf5_data_corrected",
-                "--model", "sd-mayoieeg-detection_only-val_f_measure_avg-0.70552-simplified.onnx",
-                "--model_only",
+                "--model_dir", "onnx_models_mayoieeg",
+                "--variant", "separate_bottleneck",
                 "--draw_plots",
-                // "--draw_auc_ap",
-                "--split", "val"
+                "--draw_auc_ap",
+                "--output", "final_eval_mayoieeg",
+            ]
+        },
+        {
+            "name": "Export tex tables (DREAMS, separate_bottleneck)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/tex_table_export.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--data", "DREAMS_HDF5",
+                "--annotator_spec", "any",
+                "--model_dir", "onnx_models_dreams",
+                "--variant", "separate_bottleneck",
+                "--draw_plots",
+                "--draw_auc_ap",
+                "--output", "final_eval_dreams",
+            ]
+        },
+        {
+            "name": "Export tex tables (mayoieeg, separate_bottleneck, speedups)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/tex_table_export.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--data", "hdf5_data_corrected",
+                "--model_dir", "onnx_models_mayoieeg",
+                "--variant", "separate_bottleneck",
+                "--output", "final_eval_mayoieeg_speedups",
+                "--speedup_benchmark"
             ]
         },
     ]
