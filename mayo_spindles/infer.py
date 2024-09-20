@@ -7,6 +7,7 @@ from yasa_util import yasa_predict
 from sumo.scripts.sumo_util import infer_a7, infer_sumo
 from dataloader import HDF5SpindleDataModule
 from time import perf_counter
+from export_hdf5_dataset import __convert_to_scalogram as convert_to_scalogram
 
 
 class Inferer:
@@ -43,10 +44,13 @@ class Inferer:
         return X, Y_true, Y_pred
     
     @staticmethod
-    def __infer_torch(inputs, model, segmentation_boost=False):
+    def __infer_torch(inputs, model, segmentation_boost=False, compute_spectrogram=False):
         # PyTorch inference
         outputs = model(inputs)
         outputs = Evaluator.dict_struct_from_torch_to_npy(outputs)
+        
+        if compute_spectrogram:
+            inputs['spectrogram'] = np.expand_dims(convert_to_scalogram(inputs['raw_signal'][0,0]), axis=0)
         
         if segmentation_boost:
             outputs = Evaluator.apply_segmentation_boost(outputs)
@@ -54,7 +58,7 @@ class Inferer:
         return outputs
     
     @staticmethod
-    def __infer_onnx(inputs, model, segmentation_boost=False):
+    def __infer_onnx(inputs, model, segmentation_boost=False, compute_spectrogram=False):
         # ONNX inference
         ort_inputs = {}
         for model_input in model.get_inputs():
@@ -62,6 +66,9 @@ class Inferer:
             if not name in inputs:
                 raise ValueError(f"Input '{name}' not found in the input batch")
             ort_inputs[name] = inputs[name].numpy()
+            
+        if compute_spectrogram:
+            ort_inputs['spectrogram'] = np.expand_dims(convert_to_scalogram(ort_inputs['raw_signal'][0,0]), axis=0)
         
         ort_outs = model.run(None, ort_inputs)
         outputs = {output.name: ort_outs[i] for i, output in enumerate(model.get_outputs())}
@@ -115,12 +122,16 @@ class Inferer:
         is_our_model = True
         if isinstance(model, torch.nn.Module):
             infer_fn = self.__infer_torch
-            infer_fn_kwargs = {'model': model, 'segmentation_boost': model_params.get('segmentation_boost', False)}
+            infer_fn_kwargs = {'model': model,
+                               'segmentation_boost': model_params.get('segmentation_boost', False),
+                               'compute_spectrogram': model_params.get('compute_spectrogram', False)}
         elif isinstance(model, str):
             if model.endswith('.onnx'):
                 model = ort.InferenceSession(model)
                 infer_fn = self.__infer_onnx
-                infer_fn_kwargs = {'model': model, 'segmentation_boost': model_params.get('segmentation_boost', False)}
+                infer_fn_kwargs = {'model': model,
+                                'segmentation_boost': model_params.get('segmentation_boost', False),
+                                'compute_spectrogram': model_params.get('compute_spectrogram', False)}
             else:
                 is_our_model = False
                 match model:
@@ -160,8 +171,9 @@ class Inferer:
         else:
             model_str_rep = model
         
+        total = len(data_loader) if max_elems == -1 else min(max_elems, len(data_loader))
         with torch.no_grad():
-            for i, batch in enumerate(tqdm(data_loader, desc=f'{model_str_rep[-30:]}, {self.data_module.data_dir}@{split}')):
+            for i, batch in enumerate(tqdm(data_loader, desc=f'{model_str_rep[-30:]}, {self.data_module.data_dir}@{split}', total=total)):
                 if max_elems != -1 and i >= max_elems:
                     break
 
