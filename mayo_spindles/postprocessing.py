@@ -569,11 +569,11 @@ class Evaluator:
     
     @staticmethod
     def segmentation_smoothing(segmentation: np.ndarray) -> np.ndarray:
-        # Apply median filter to the segmentation
+        # Apply median filter to the segmentation with window size ~1.4 seconds
         # Assume batched input [B, 7500, 1]
         segmentation = deepcopy(segmentation)
         output = np.zeros_like(segmentation)
-        window_size = 349
+        window_size = 351
         
         for i in range(segmentation.shape[0]):
             output[i] = medfilt(segmentation[i], kernel_size=(window_size, 1))
