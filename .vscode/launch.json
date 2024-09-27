@@ -290,6 +290,20 @@
             ]
         },
         {
+            "name": "Tag and export MEFD (train, best_variant)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/tag_and_export_mefd.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--data", "hdf5_data",
+                "--model", "onnx_models_mayoieeg\\wandering-pond-2869-detection_only-val_f_measure_avg-0.71831-simplified.onnx",
+                "--split", "test",
+                "--output", "annotations_v2_train"
+            ]
+        },
+        {
             "name": "Load corrected annotations (val)",
             "type": "debugpy",
             "request": "launch",
