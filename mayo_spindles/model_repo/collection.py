@@ -5,11 +5,11 @@ import torch
 import yaml
 
 from model_repo.cdil import CDILModel
-from model_repo.cdil_rnns import CDILGRUModel, CDILLSTMModel, CDILRNNModel
+# from model_repo.cdil_rnns import CDILGRUModel, CDILLSTMModel, CDILRNNModel
 from yasa_util import OutputSuppressor
 from .base import BaseModel
-from .basic_models import CNNModel, GRUModel, LSTMModel, MLPModel, RNNModel
-from .tslib_models import *
+# from .basic_models import CNNModel, GRUModel, LSTMModel, MLPModel, RNNModel
+# from .tslib_models import *
 
 
 class Config:
@@ -59,23 +59,23 @@ class Config:
 class ModelRepository:
     def __init__(self):
         self.models = {}
-
-        self.register("mlp", MLPModel)
-        self.register("cnn", CNNModel)
-        self.register("rnn", RNNModel)
-        self.register("gru", GRUModel)
-        self.register("lstm", LSTMModel)
-        
         self.register("cdil", CDILModel)
-        
-        self.register("cdil_rnn", CDILRNNModel)
-        self.register("cdil_gru", CDILGRUModel)
-        self.register("cdil_lstm", CDILLSTMModel)
 
-        # tslib models
-        for model_file in globals():
-            if model_file.endswith("TSLIBModel"):
-                self.register(model_file[:-10].lower(), globals()[model_file])
+        # Removing support for the following models as they are not used
+        # self.register("mlp", MLPModel)
+        # self.register("cnn", CNNModel)
+        # self.register("rnn", RNNModel)
+        # self.register("gru", GRUModel)
+        # self.register("lstm", LSTMModel)
+        
+        # self.register("cdil_rnn", CDILRNNModel)
+        # self.register("cdil_gru", CDILGRUModel)
+        # self.register("cdil_lstm", CDILLSTMModel)
+
+        # # tslib models
+        # for model_file in globals():
+        #     if model_file.endswith("TSLIBModel"):
+        #         self.register(model_file[:-10].lower(), globals()[model_file])
 
     def __len__(self):
         return len(self.models)

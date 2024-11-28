@@ -620,6 +620,7 @@ class SpindleDataset(Dataset):
         assert emu_text == 'ses', f"Folder name {folder_name} does not contain 'ses', cannot infer emu id"
         
         reader = MefReader(mefd_folder, password2='imagination')
+        # reader.get_raw_data()
         patient_handle = PatientHandle(patient_id, emu_id, reader, self._csv_file,
                                        preprocessing=self._preprocessing,
                                        report_analysis=self._report_analysis,
@@ -632,7 +633,8 @@ class SpindleDataset(Dataset):
     
     def set_duration(self, duration):
         fsamps = [h.get_fsamp() for h in self._patient_handles.values()]
-        common_fsamp = max(set(fsamps), key=fsamps.count)
+        # common_fsamp = max(set(fsamps), key=fsamps.count)
+        common_fsamp = 250
         self._preprocessing.set_fsamp(common_fsamp)
         self._common_sampling_rate = common_fsamp
         
@@ -708,7 +710,7 @@ class SpindleDataModule(LightningDataModule):
         self.dataset = SpindleDataset(only_intracranial_data=intracranial_only,
                                       preprocessing=preprocessing, spindle_data_radius=spindle_data_radius)
         for file in os.listdir(data_dir):
-            if file.endswith('AL.csv'):
+            if file.endswith('MAIN.csv'):
                 self.dataset.register_main_csv(os.path.join(data_dir, file))
             elif file.endswith('.mefd'):
                 self.dataset.register_mefd_reader(os.path.join(data_dir, file))

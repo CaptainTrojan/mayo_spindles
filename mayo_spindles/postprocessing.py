@@ -714,43 +714,43 @@ class Evaluator:
     #         ys.append(cls.binary_signal_to_classes(x[i]))
     #     return torch.stack(ys)
     
-    # @classmethod
-    # def metadata_to_classes(cls, metadata: dict, size: int, use_torch=False):
-    #     """
-    #     Spindle header: MH_ID,M_ID,EMU_Stay,Annotation,Start,End,Duration,Frequency,Preceded_IED,Preceded_SO,Laterality_T,Laterality_H,Laterality_C,Partic_MID,Detail,Partic_LT,Partic_RT,Partic_LH,Partic_RH,Partic_LC,Partic_RC,
-    #     Metadata: {
-    #         'data': data,
-    #         'spindles': spindles.to_dict('list'),
-    #         'start_time': start_time,
-    #         'end_time': end_time,
-    #         'patient_id': self._patient_id, 
-    #         'emu_id': self._emu_id,
-    #         'channel_names': self._output_channels
-    #     }
-    #     """
-    #     F = np if not use_torch else torch
+    @classmethod
+    def metadata_to_classes(cls, metadata: dict, size: int, use_torch=False):
+        """
+        Spindle header: MH_ID,M_ID,EMU_Stay,Annotation,Start,End,Duration,Frequency,Preceded_IED,Preceded_SO,Laterality_T,Laterality_H,Laterality_C,Partic_MID,Detail,Partic_LT,Partic_RT,Partic_LH,Partic_RH,Partic_LC,Partic_RC,
+        Metadata: {
+            'data': data,
+            'spindles': spindles.to_dict('list'),
+            'start_time': start_time,
+            'end_time': end_time,
+            'patient_id': self._patient_id, 
+            'emu_id': self._emu_id,
+            'channel_names': self._output_channels
+        }
+        """
+        F = np if not use_torch else torch
         
-    #     y = F.zeros((len(cls.CLASSES), size), dtype=F.uint8 if not use_torch else F.float32)
-    #     start_time = metadata['start_time']
-    #     end_time = metadata['end_time']
+        y = F.zeros((len(cls.CLASSES), size), dtype=F.uint8 if not use_torch else F.float32)
+        start_time = metadata['start_time']
+        end_time = metadata['end_time']
         
-    #     # classes = Partic_LT,Partic_RT,Partic_LH,Partic_RH,Partic_LC,Partic_RC,Partic_MID
+        # classes = Partic_LT,Partic_RT,Partic_LH,Partic_RH,Partic_LC,Partic_RC,Partic_MID
         
-    #     class_columns = [metadata['spindles'][col] for col in cls.CLASSES_INV]
-    #     for row in zip(metadata['spindles']['Start'], metadata['spindles']['End'], *class_columns):
-    #         start, end, *class_mask = row
-    #         start = int((start - start_time) * size / (end_time - start_time))
-    #         end = int((end - start_time) * size / (end_time - start_time))
-    #         y[class_mask, start:end+1] = 1
+        class_columns = [metadata['spindles'][col] for col in cls.CLASSES_INV]
+        for row in zip(metadata['spindles']['Start'], metadata['spindles']['End'], *class_columns):
+            start, end, *class_mask = row
+            start = int((start - start_time) * size / (end_time - start_time))
+            end = int((end - start_time) * size / (end_time - start_time))
+            y[class_mask, start:end+1] = 1
         
-    #     return y
+        return y
     
-    # @classmethod
-    # def batch_metadata_to_classes(cls, metadata_list: list[dict], size: int):
-    #     ys = []
-    #     for metadata in metadata_list:
-    #         ys.append(cls.metadata_to_classes(metadata, size, use_torch=True))
-    #     return torch.stack(ys)
+    @classmethod
+    def batch_metadata_to_classes(cls, metadata_list: list[dict], size: int):
+        ys = []
+        for metadata in metadata_list:
+            ys.append(cls.metadata_to_classes(metadata, size, use_torch=True))
+        return torch.stack(ys)
     
     # @classmethod
     # def classes_to_binary_signal(cls, y: np.ndarray):

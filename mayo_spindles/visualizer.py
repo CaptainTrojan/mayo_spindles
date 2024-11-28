@@ -13,6 +13,10 @@ import yasa_util
 from PyQt5.QtGui import QTextCursor, QFont
 
 class Visualizer(QMainWindow):
+    @property
+    def canvas_figsize(self):
+        return (self.fig_default_size[0] * self.scaling_factor, self.fig_default_size[1])
+    
     def __init__(self, dataset: HDF5Dataset):
         super().__init__()
         self._dataset = dataset
@@ -32,7 +36,9 @@ class Visualizer(QMainWindow):
         self.layout = QVBoxLayout()
 
         # Create a FigureCanvas for matplotlib to draw onto
-        self.canvas = FigureCanvas(plt.Figure(figsize=(12, 7)))
+        self.fig_default_size = (12, 7)
+        self.scaling_factor = 1.0
+        self.canvas = FigureCanvas(plt.Figure(figsize=self.canvas_figsize))
 
         # Create a QLabel to display the status
         self.status_messages = []
@@ -77,6 +83,20 @@ class Visualizer(QMainWindow):
         # Show the first element
         self.show_element()
         
+    def increase_scaling_factor(self):
+        self.scaling_factor += 0.1
+        self.canvas.figure.set_size_inches(self.canvas_figsize)
+        self.canvas.draw()
+        # Resize the window to fit the new figure size
+        self.resize(int(self.canvas.figure.get_size_inches()[0] * 100), int(self.canvas.figure.get_size_inches()[1] * 100))
+        
+    def decrease_scaling_factor(self):
+        self.scaling_factor = max(0.1, self.scaling_factor - 0.1)
+        self.canvas.figure.set_size_inches(self.canvas_figsize)
+        self.canvas.draw()
+        # Resize the window to fit the new figure size
+        self.resize(int(self.canvas.figure.get_size_inches()[0] * 100), int(self.canvas.figure.get_size_inches()[1] * 100))
+        
     def set_status(self, text):
         self.status_messages.append(text)
         self.status_messages = self.status_messages[-self.status_message_limit:]
@@ -95,6 +115,10 @@ class Visualizer(QMainWindow):
                 self.show_next()
             case Qt.Key_Q:
                 self.close()
+            case Qt.Key_Plus:
+                self.increase_scaling_factor()
+            case Qt.Key_Minus:
+                self.decrease_scaling_factor()
         
     def model_checkbox_changed(self):
         self.show_element()

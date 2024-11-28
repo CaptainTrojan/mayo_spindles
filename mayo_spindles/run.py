@@ -171,8 +171,9 @@ def run_training(args, dataset_specification, data_module, model_name, model_con
 
         model.report_full_stats = True
         trainer.validate(model, data_module, ckpt_path='best')
-    
-        wandb.unwatch()
+
+        if not args.smoke:
+            wandb.unwatch()
         
     # Export the model to ONNX
     model = SpindleDetector.load_from_checkpoint(
@@ -206,7 +207,7 @@ def run_training(args, dataset_specification, data_module, model_name, model_con
         onnx_path = export_path  # Use the original model if simplification failed
     
     # Store the ONNX model in W&B if not aggregating runs
-    if args.aggregate_runs == 1:
+    if args.aggregate_runs == 1 and not args.smoke:
         wandb.log_model(onnx_path, name=f'{wandb.run.name}-spindle-detector')
 
     # Run inference on both validation and test sets.
@@ -217,13 +218,13 @@ def run_training(args, dataset_specification, data_module, model_name, model_con
     res, times = inferer.infer(export_path, 'val')
     evaluation = inferer.evaluate(res)
     # Log the evaluation results (averages are sufficient)
-    row_data_val = get_row_from_results('onnx', evaluation, times, full=True, include_method=False)
+    row_data_val = get_row_from_results('onnx', evaluation, times, include_method=False)
     row_data_val = {f'onnx/val/{k}': v for k, v in row_data_val.items()}
     
     res, times = inferer.infer(export_path, 'test')
     evaluation = inferer.evaluate(res)
     # Log the evaluation results (averages are sufficient)
-    row_data_test = get_row_from_results('onnx', evaluation, times, full=True, include_method=False)
+    row_data_test = get_row_from_results('onnx', evaluation, times, include_method=False)
     row_data_test = {f'onnx/test/{k}': v for k, v in row_data_test.items()}
     
     # Put them in a dataframe
@@ -231,7 +232,7 @@ def run_training(args, dataset_specification, data_module, model_name, model_con
     kv_merged = [{'key': k, 'value': v} for k, v in merged.items()]
     df = pd.DataFrame(kv_merged)
     # Log the dataframe if not aggregating runs
-    if args.aggregate_runs == 1:
+    if args.aggregate_runs == 1 and not args.smoke:
         wandb.log({'onnx_results': wandb.Table(dataframe=df)})
         # Log the values separately as well for w&b processing
         wandb.log({k: v for k, v in merged.items()})
@@ -268,7 +269,7 @@ if __name__ == '__main__':
     parser.add_argument('--checkpoint_path', type=str, default='checkpoints', help='path to the checkpoints (default: checkpoints)')
 
     parser.add_argument('--project_name', type=str, default='mayo_spindles_single_channel', help='name of the project (default: mayo_spindles_single_channel)')
-    parser.add_argument('--num_workers', type=int, default=10, help='number of workers for the data loader (default: 10)')
+    parser.add_argument('--num_workers', type=int, default=0, help='number of workers for the data loader (default: 0)')
     
     parser.add_argument('--epochs', type=int, default=1000, help='max number of epochs to train (default: 1000)')
     parser.add_argument('--patience', type=int, default=30, help='patience for early stopping (default: 30)')
