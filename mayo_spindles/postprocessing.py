@@ -90,9 +90,32 @@ class Metric:
         num_fp = len(y_pred) - num_tp
         num_fn = len(y_true) - num_tp
         return num_tp, num_fp, num_fn
-
-
-class DetectionFMeasure(Metric):        
+    
+    def segmentation_compute_tp_fp_fn(self, seq_len: int, y_true: np.ndarray, y_pred: np.ndarray, confidence_threshold=0.5) -> tuple[int, int, int]:
+        y_pred_thresholded = (y_pred > confidence_threshold).astype(int)
+        y_true = y_true.astype(int)
+        
+        num_tp = np.logical_and(y_true, y_pred_thresholded).sum()
+        num_fp = np.logical_and(1 - y_true, y_pred_thresholded).sum()
+        num_fn = np.logical_and(y_true, 1 - y_pred_thresholded).sum()
+        
+        return num_tp, num_fp, num_fn
+    
+    
+class FMeasure(Metric):
+    def __init__(self, name, threshold=0.5):
+        super().__init__(name)
+        self.threshold = threshold
+    
+    @property
+    def tp_fp_fn_getter(self):
+        raise NotImplementedError("This method is not implemented yet")
+    
+    @property
+    def source_key(self):
+        # 'detection' or 'segmentation'
+        raise NotImplementedError("This method is not implemented yet")
+    
     def __call__(self, b_y_true, b_y_pred):
         # y_true contains key 'detection' with shape [B, 30, 3]
         # y_pred contains key 'detection' with shape [B, 30, 3]
@@ -100,8 +123,8 @@ class DetectionFMeasure(Metric):
         # First, convert detections to intervals
         seq_len = b_y_true['segmentation'].shape[-2]
 
-        for y_true, y_pred, _cls in zip(b_y_true['detection'], b_y_pred['detection'], b_y_true['class']):
-            num_tp, num_fp, num_fn = self.detection_compute_tp_fp_fn(seq_len, y_true, y_pred)
+        for y_true, y_pred, _cls in zip(b_y_true[self.source_key], b_y_pred[self.source_key], b_y_true['class']):
+            num_tp, num_fp, num_fn = self.tp_fp_fn_getter(seq_len, y_true, y_pred, self.threshold)
             
             _cls = Evaluator.CLASSES_INV[_cls[0]]
             self._tp[_cls].append(num_tp)
@@ -157,6 +180,16 @@ class DetectionFMeasure(Metric):
     
     def __len__(self):
         return len(self._tp[next(iter(self._tp.keys()))])
+
+
+class DetectionFMeasure(FMeasure):
+    @property
+    def tp_fp_fn_getter(self):
+        return self.detection_compute_tp_fp_fn
+    
+    @property
+    def source_key(self):
+        return 'detection'
     
     
 class AUROCAndAP(Metric):
@@ -217,9 +250,16 @@ class AUROCAndAP(Metric):
             fpr, tpr, micro_roc_thresholds = roc_curve(all_y_true, all_confidences)
             precision, recall, micro_pr_thresholds = precision_recall_curve(all_y_true, all_confidences)
             
+            # Calculate the F1 score for each threshold
+            f1_per_threshold = 2 * (precision * recall) / (precision + recall)
+            f1_per_threshold = f1_per_threshold[:-1]
+            f1_per_threshold = np.where(np.isnan(f1_per_threshold), 0, f1_per_threshold)
+            
             curves['micro-average'] = {
                 'roc': (fpr, tpr),
                 'pr': (recall, precision),
+                'f1_per_threshold': (micro_pr_thresholds, f1_per_threshold),
+                'best_threshold': micro_pr_thresholds[np.argmax(f1_per_threshold)],
             }
         else:
             micro_auroc = np.nan
@@ -227,6 +267,8 @@ class AUROCAndAP(Metric):
             curves['micro-average'] = {
                 'roc': (np.array([]), np.array([])),
                 'pr': (np.array([]), np.array([])),
+                'f1_per_threshold': (np.array([]), np.array([])),
+                'best_threshold': np.nan
             }
         
         micro_average = pd.DataFrame({
@@ -261,12 +303,16 @@ class DetectionAUROCAndAP(AUROCAndAP):
         
 
 class SegmentationJaccardIndex(Metric):
+    def __init__(self, name, threshold=0.5):
+        super().__init__(name)
+        self.threshold = threshold
+    
     def __call__(self, b_y_true, b_y_pred):
         # y_true contains key 'segmentation' with shape [B, seq_len, 1]
         # y_pred contains key 'segmentation' with shape [B, seq_len, 1]
         
         for y_true, y_pred, _cls in zip(b_y_true['segmentation'], b_y_pred['segmentation'], b_y_true['class']):
-            y_pred = (y_pred > 0.5).astype(int)
+            y_pred = (y_pred > self.threshold).astype(int)
             y_true = y_true.astype(int)
             intersection = np.logical_and(y_true, y_pred).sum()
             union = np.logical_or(y_true, y_pred).sum()
@@ -323,13 +369,24 @@ class SegmentationAUROCAndAP(AUROCAndAP):
     @property
     def source_key(self):
         return 'segmentation'
-
+    
+class SegmentationFMeasure(FMeasure):
+    @property
+    def tp_fp_fn_getter(self):
+        return self.segmentation_compute_tp_fp_fn
+    
+    @property
+    def source_key(self):
+        return 'segmentation'
+    
+    
 @finalizing
 class Evaluator:
     DETECTION_F_MEASURE = DetectionFMeasure
     SEGMENTATION_JACCARD_INDEX = SegmentationJaccardIndex
     DETECTION_AUROC_AP = DetectionAUROCAndAP
     SEGMENTATION_AUROC_AP = SegmentationAUROCAndAP
+    SEGMENTATION_F_MEASURE = SegmentationFMeasure
     
     POSSIBLE_INTRACRANIAL_CHANNELS = [
         'e0-e1', 'e0-e2', 'e0-e3', 'e1-e2', 'e1-e3', 'e2-e3',  # LT
@@ -573,7 +630,7 @@ class Evaluator:
         # Assume batched input [B, 7500, 1]
         segmentation = deepcopy(segmentation)
         output = np.zeros_like(segmentation)
-        window_size = 351
+        window_size = 11
         
         for i in range(segmentation.shape[0]):
             output[i] = medfilt(segmentation[i], kernel_size=(window_size, 1))
@@ -583,8 +640,8 @@ class Evaluator:
     def __init__(self):
         self._metrics = []
         
-    def add_metric(self, name, metric_cls: type[Metric]):
-        metric = metric_cls(name)
+    def add_metric(self, name, metric_cls: type[Metric], **kwargs):
+        metric = metric_cls(name, **kwargs)
         self._metrics.append(metric)
             
     def batch_evaluate(self,

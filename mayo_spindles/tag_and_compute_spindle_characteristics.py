@@ -28,7 +28,7 @@ def calculate_frequency(x, intervals, sample_rate=250, target_frequencies=(9, 16
         power = power[(freqs >= target_frequencies[0]) & (freqs <= target_frequencies[1])]
         freqs = freqs[(freqs >= target_frequencies[0]) & (freqs <= target_frequencies[1])]
         
-        # Find dominant frequency        
+        # Find central frequency        
         dominant_freq = freqs[np.argmax(power)]
         frequencies.append(dominant_freq)
     return np.mean(frequencies) if frequencies else 0
@@ -54,7 +54,7 @@ def calculate_phase_amplitude_coupling(x, intervals, sample_rate=250):
     return np.mean(pac_values) if pac_values else 0
 
 # Helper function for spectral power calculation
-def calculate_spectral_power(x, intervals, freq_range=(12, 16), sample_rate=250):
+def calculate_spectral_power(x, intervals, freq_range=(9, 16), sample_rate=250):
     powers = []
     for start, end, _ in intervals:
         spindle_segment = x[start:end]
@@ -72,12 +72,25 @@ def calculate_timing_precision(intervals, target_phase=0):
         timing_precision.append(abs(midpoint - target_phase))  # Target phase needs adjustment based on context
     return np.mean(timing_precision) if timing_precision else 0
 
-
+def calculate_chirp(x, intervals, sample_rate=250):
+    chirps = []
+    for start, end, _ in intervals:
+        spindle_segment = x[start:end]
+        analytic_signal = signal.hilbert(spindle_segment)
+        instantaneous_phase = np.unwrap(np.angle(analytic_signal))
+        instantaneous_frequency = np.diff(instantaneous_phase) * sample_rate / (2.0 * np.pi)
+        
+        # Calculate the change in frequency (chirp)
+        chirp = np.mean(np.diff(instantaneous_frequency))
+        chirps.append(chirp)
+    
+    return np.mean(chirps) if chirps else 0
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Compute spindle characteristics')
     parser.add_argument('--data', type=str, required=True, help='path to the data')
+    parser.add_argument('--annotator_spec', type=str, default='', help='Annotator specification')
     parser.add_argument('--model', type=str, required=True, help='model to use for inference')
     # parser.add_argument('--split', choices=['train', 'val', 'test'], required=True, help='split to use for inference')
     # We want to compute spindle characteristics for all splits
@@ -91,13 +104,13 @@ if __name__ == '__main__':
     for split in ['train', 'val', 'test']:
         print(f'Processing {split} split')
         
-        data_module = HDF5SpindleDataModule(args.data, batch_size=16, num_workers=10)
+        data_module = HDF5SpindleDataModule(args.data, batch_size=16, num_workers=10, annotator_spec=args.annotator_spec)
         inferer = Inferer(data_module)
         predictions, _ = inferer.infer(args.model, split)
         
         X, Y_true, Y_pred = predictions
         
-        for i, (x, y_t, y_p) in tqdm(enumerate(zip(X['raw_signal'], Y_true['detection'], Y_pred['detection']))):      
+        for i, (x, y_t, y_p) in tqdm(enumerate(zip(X['og_raw_signal'], Y_true['detection'], Y_pred['detection']))):      
             y_t_intervals = Evaluator.detections_to_intervals(y_t, seq_len=30*250)
             y_t_intervals = Evaluator.intervals_nms(y_t_intervals)
             
@@ -112,13 +125,14 @@ if __name__ == '__main__':
                 # Squeeze x to 1D
                 x = x.squeeze()
                 
-                all_results.append({'split': split, 'origin': origin, 'name': 'density', 'value': calculate_density(intervals)})
-                all_results.append({'split': split, 'origin': origin, 'name': 'frequency', 'value': calculate_frequency(x, intervals)})
-                all_results.append({'split': split, 'origin': origin, 'name': 'amplitude', 'value': calculate_amplitude(x, intervals)})
-                all_results.append({'split': split, 'origin': origin, 'name': 'duration', 'value': calculate_duration(intervals)})
-                all_results.append({'split': split, 'origin': origin, 'name': 'phase_amplitude_coupling', 'value': calculate_phase_amplitude_coupling(x, intervals)})
-                all_results.append({'split': split, 'origin': origin, 'name': 'spectral_power', 'value': calculate_spectral_power(x, intervals)})
-                all_results.append({'split': split, 'origin': origin, 'name': 'timing_precision', 'value': calculate_timing_precision(intervals)})
+                all_results.append({'split': split, 'origin': origin, 'name': 'Density (%)', 'value': calculate_density(intervals)})
+                all_results.append({'split': split, 'origin': origin, 'name': 'Central Frequency (Hz)', 'value': calculate_frequency(x, intervals)})
+                all_results.append({'split': split, 'origin': origin, 'name': 'Amplitude (μV)', 'value': calculate_amplitude(x, intervals)})
+                all_results.append({'split': split, 'origin': origin, 'name': 'Duration (s)', 'value': calculate_duration(intervals)})
+                all_results.append({'split': split, 'origin': origin, 'name': 'Phase Coupling (μV)', 'value': calculate_phase_amplitude_coupling(x, intervals)})
+                all_results.append({'split': split, 'origin': origin, 'name': 'Spectral Power (μV^2)', 'value': calculate_spectral_power(x, intervals)})
+                # all_results.append({'split': split, 'origin': origin, 'name': 'timing_precision', 'value': calculate_timing_precision(intervals)})
+                all_results.append({'split': split, 'origin': origin, 'name': 'Chirp (Hz/s)', 'value': calculate_chirp(x, intervals)})
                 
             if i == 5:
                 break  # Just for testing purposes, remove this line for full processing

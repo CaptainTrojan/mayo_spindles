@@ -6,7 +6,6 @@ import wandb.sync
 import yaml
 from model_repo.collection import ModelRepository
 from dataloader import HDF5SpindleDataModule
-from prediction_visualizer import PredictionVisualizer
 from lightningmodel import SpindleDetector
 import pytorch_lightning as pl
 from pytorch_lightning.tuner.tuning import Tuner

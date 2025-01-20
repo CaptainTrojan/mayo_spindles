@@ -11,8 +11,10 @@ from export_hdf5_dataset import __convert_to_scalogram as convert_to_scalogram
 
 
 class Inferer:
-    def __init__(self, data_module: HDF5SpindleDataModule):
+    def __init__(self, data_module: HDF5SpindleDataModule, det_threshold: float = 0.5, seg_threshold: float = 0.5):
         self.data_module = data_module
+        self.det_threshold = det_threshold
+        self.seg_threshold = seg_threshold
         
     @staticmethod
     def __collate_predictions(results: tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, np.ndarray]]):
@@ -214,9 +216,10 @@ class Inferer:
                  ):
         x, y_true, y_pred = predictions
         evaluator = Evaluator()
-        evaluator.add_metric('det_f1', Evaluator.DETECTION_F_MEASURE)
-        evaluator.add_metric('seg_iou', Evaluator.SEGMENTATION_JACCARD_INDEX)
+        evaluator.add_metric('det_f1', Evaluator.DETECTION_F_MEASURE, threshold=self.det_threshold)
+        evaluator.add_metric('seg_iou', Evaluator.SEGMENTATION_JACCARD_INDEX, threshold=self.seg_threshold)
         evaluator.add_metric('det_auc_ap', Evaluator.DETECTION_AUROC_AP)
         evaluator.add_metric('seg_auc_ap', Evaluator.SEGMENTATION_AUROC_AP)
+        evaluator.add_metric('seg_f1', Evaluator.SEGMENTATION_F_MEASURE, threshold=self.seg_threshold)
         evaluator.batch_evaluate(y_true, y_pred, should_preprocess_preds)
         return evaluator.results()

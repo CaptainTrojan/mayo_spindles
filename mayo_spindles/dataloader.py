@@ -14,6 +14,7 @@ class HDF5Dataset(Dataset):
     """
     Yields tuples X, y, where
     X: 
+        'og_raw_signal': [1, seq_len] - original raw EEG signal coming from one of the intracranial leads
         'raw_signal': [1, seq_len] - raw EEG signal coming from one of the intracranial leads
         'spectrogram': [30, seq_len] - scalogram of the raw signal
     Y: 
@@ -115,7 +116,7 @@ class HDF5Dataset(Dataset):
             
         # Add extra dim to x
         x = np.expand_dims(x, axis=0)
-        inputs = {'raw_signal': x}
+        inputs = {'raw_signal': x, 'og_raw_signal': self.__load_one_element('x', index, normalize=False)}
         if not self.return_raw_signal:
             inputs['spectrogram'] = specgram
         
