@@ -182,7 +182,8 @@ class SpindleDetector(pl.LightningModule):
         # Define the evaluator
         self.evaluator = Evaluator()
         self.evaluator.add_metric('det_f1', Evaluator.DETECTION_F_MEASURE)
-        self.evaluator.add_metric('seg_iou', Evaluator.SEGMENTATION_JACCARD_INDEX)
+        self.evaluator.add_metric('seg_f1', Evaluator.SEGMENTATION_F_MEASURE)
+        # self.evaluator.add_metric('seg_iou', Evaluator.SEGMENTATION_JACCARD_INDEX)
         
         self.metric = metric
         self.mode = mode
@@ -303,7 +304,7 @@ class SpindleDetector(pl.LightningModule):
         results: dict[str, list[pd.DataFrame]] = self.evaluator.results()
         
         self.log_metric_results('det_f1', results)
-        self.log_metric_results('seg_iou', results)
+        self.log_metric_results('seg_f1', results)
         
         if self.report_full_stats and self.wandb_logger is not None:            
             print("Logging predictions to wandb...")
@@ -320,7 +321,7 @@ class SpindleDetector(pl.LightningModule):
     def log_metric_results(self, name, results):
         df_name_map = {
             'det_f1': ('f_measure',),
-            'seg_iou': ('jaccard_index',),
+            'seg_f1': ('f_measure',),
         }
         
         results = results[name]
@@ -347,11 +348,11 @@ class SpindleDetector(pl.LightningModule):
         # Log all f1 scores (for each class) to the logger as well
         for class_name, values in results[0].iterrows():
             for df_name in df_names:
-                self.log(f'val_{df_name}_{class_name}', float(values[df_name]))
+                self.log(f'val_{name}_{class_name}', float(values[df_name]))
             
         # Log the micro average f1 score to the logger
         for df_name in df_names:
-            self.log(f'val_{df_name}_avg', float(results[1].iloc[0][df_name]))
+            self.log(f'val_{name}_avg', float(results[1].iloc[0][df_name]))
     
     def test_step(self, test_batch, batch_idx):
         raise NotImplementedError("Test step not implemented")

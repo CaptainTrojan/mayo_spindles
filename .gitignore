@@ -20,3 +20,7 @@ DREAMS_HDF5/
 model_comparison*
 pr_micro*png
 roc_micro*png
+SPIKES/
+SPIKE_INTERVALS/
+hdf5_data*
+lightning_logs/

@@ -22,6 +22,7 @@ if __name__ == '__main__':
     parser.add_argument('--output_dir', type=str, required=True)
     parser.add_argument('--duration', type=int, required=True)
     parser.add_argument('--seed', type=int, required=True)  # Make sure the user remembers the seed
+    parser.add_argument('--max_elements', type=int, default=None)  # Add max_elements argument
 
     args = parser.parse_args()
     dm = SpindleDataModule(args.data_dir, args.duration, should_convert_metadata_to_tensor=True, train_only=True, batch_size=1)
@@ -38,7 +39,10 @@ if __name__ == '__main__':
     y_lens = []
 
     # Iterate over DataLoader and store data
-    for batch in tqdm(dl, desc='Exporting data'):
+    for i, batch in enumerate(tqdm(dl, desc='Exporting data')):
+        if args.max_elements is not None and i >= args.max_elements:
+            break
+
         x, y = batch
 
         # Merge same-class channel data together

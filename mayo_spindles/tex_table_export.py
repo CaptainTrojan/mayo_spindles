@@ -26,18 +26,25 @@ def format_value(value):
 def get_row_from_results(key,
                          df_data: dict[list[pd.DataFrame]] | list[dict[list[pd.DataFrame]]],
                          times: dict[str, float] | list[dict[str, float]],
-                         include_metrics=True, include_times=False, concise_times=True, include_method=True):
+                         include_metrics=True, include_times=False, concise_times=True, include_method=True,
+                         do_format=True):
     if include_metrics:
         if isinstance(df_data, list):
-            micro_macro_f1 = [d['det_f1'][1].loc['micro-average'] for d in df_data]
+            det_f1 = [d['det_f1'][1].loc['micro-average'] for d in df_data]
+            det_best_threshold = [d['det_auc_ap'][2]['micro-average']['best_threshold'] for d in df_data]
             jaccard = [d['seg_iou'][1].loc['micro-average'] for d in df_data]
             det_auc = [d['det_auc_ap'][1].loc['micro-average'] for d in df_data]
             seg_auc = [d['seg_auc_ap'][1].loc['micro-average'] for d in df_data]
+            seg_f1 = [d['seg_f1'][1].loc['micro-average'] for d in df_data]
+            seg_opt = [d['seg_auc_ap'][2]['micro-average']['best_threshold'] for d in df_data]
         else:
-            micro_macro_f1 = df_data['det_f1'][1].loc['micro-average']
+            det_f1 = df_data['det_f1'][1].loc['micro-average']
+            det_best_threshold = df_data['det_auc_ap'][2]['micro-average']['best_threshold']
             jaccard = df_data['seg_iou'][1].loc['micro-average']
             det_auc = df_data['det_auc_ap'][1].loc['micro-average']
             seg_auc = df_data['seg_auc_ap'][1].loc['micro-average']
+            seg_f1 = df_data['seg_f1'][1].loc['micro-average']
+            seg_opt = df_data['seg_auc_ap'][2]['micro-average']['best_threshold']
 
     if include_method:
         ret = {
@@ -48,9 +55,14 @@ def get_row_from_results(key,
 
     if include_metrics:
         ret.update({
-            'precision': [m['precision'] for m in micro_macro_f1] if isinstance(micro_macro_f1, list) else micro_macro_f1['precision'],
-            'recall': [m['recall'] for m in micro_macro_f1] if isinstance(micro_macro_f1, list) else micro_macro_f1['recall'],
-            'f1': [m['f_measure'] for m in micro_macro_f1] if isinstance(micro_macro_f1, list) else micro_macro_f1['f_measure'],
+            'det_precision': [m['precision'] for m in det_f1] if isinstance(det_f1, list) else det_f1['precision'],
+            'det_recall': [m['recall'] for m in det_f1] if isinstance(det_f1, list) else det_f1['recall'],
+            'det_f1': [m['f_measure'] for m in det_f1] if isinstance(det_f1, list) else det_f1['f_measure'],
+            'det_optimal_threshold': [t for t in det_best_threshold] if isinstance(det_best_threshold, list) else det_best_threshold,
+            'seg_precision': [m['precision'] for m in seg_f1] if isinstance(seg_f1, list) else seg_f1['precision'],
+            'seg_recall': [m['recall'] for m in seg_f1] if isinstance(seg_f1, list) else seg_f1['recall'],
+            'seg_f1': [m['f_measure'] for m in seg_f1] if isinstance(seg_f1, list) else seg_f1['f_measure'],
+            'seg_optimal_threshold': [t for t in seg_opt] if isinstance(seg_opt, list) else seg_opt,
             'jaccard': [j['jaccard_index'] for j in jaccard] if isinstance(jaccard, list) else jaccard['jaccard_index'],
             'det_auroc': [d['auroc'] for d in det_auc] if isinstance(det_auc, list) else det_auc['auroc'],
             'det_ap': [d['average_precision'] for d in det_auc] if isinstance(det_auc, list) else det_auc['average_precision'],
@@ -60,21 +72,34 @@ def get_row_from_results(key,
         })
         
         # Apply formatting
-        for k in ret.keys():
-            ret[k] = format_value(ret[k])
+        if do_format:
+            for k in ret.keys():
+                ret[k] = format_value(ret[k])
 
     if include_times:
         if concise_times:
             if isinstance(times, list):
-                ret['avg_speedup'] = format_value([t['avg_speedup'] for t in times])
+                if do_format:
+                    ret['avg_speedup'] = format_value([t['avg_speedup'] for t in times])
+                else:
+                    ret['avg_speedup'] = [t['avg_speedup'] for t in times]
             else:
-                ret['avg_speedup'] = format_value(times['avg_speedup'])
+                if do_format:
+                    ret['avg_speedup'] = format_value(times['avg_speedup'])
+                else:
+                    ret['avg_speedup'] = times['avg_speedup']
         else:
             if isinstance(times, list):
                 for k in times[0].keys():
-                    ret[k] = format_value([t[k] for t in times])
+                    if do_format:
+                        ret[k] = format_value([t[k] for t in times])
+                    else:
+                        ret[k] = [t[k] for t in times]
             else:
-                ret.update({k: format_value(v) for k, v in times.items()})
+                if do_format:
+                    ret.update({k: format_value(v) for k, v in times.items()})
+                else:
+                    ret.update(times)
         
     return ret
 
@@ -143,7 +168,7 @@ def run_inference_and_evaluate(args, inferer, visualizer):
     if args.draw_auc_ap:
         # Draw plots for AUC and AP, both detection and segmentation, each model with alpha= 1 / num_models
         # In a 2x2 grid: det/seg X AUC/AP
-        fig, axs = plt.subplots(2, 2, figsize=(4, 4))
+        fig, axs = plt.subplots(2, 3, figsize=(6, 4))
         alpha = 1 / len(results)
         
         for eval_res, _ in results:  # For each model
@@ -156,12 +181,20 @@ def run_inference_and_evaluate(args, inferer, visualizer):
             # Draw the AP plots (key 'pr')
             axs[0, 1].plot(det_data['pr'][0], det_data['pr'][1], alpha=alpha, color='black', linewidth=0.5)
             axs[1, 1].plot(seg_data['pr'][0], seg_data['pr'][1], alpha=alpha, color='black', linewidth=0.5)
+            # Draw the F1 plots (key 'f1_per_threshold')
+            axs[0, 2].plot(det_data['f1_per_threshold'][0], det_data['f1_per_threshold'][1], alpha=alpha, color='black', linewidth=0.5)
+            axs[1, 2].plot(seg_data['f1_per_threshold'][0], seg_data['f1_per_threshold'][1], alpha=alpha, color='black', linewidth=0.5)
+            # Highlight the point of the best threshold ('best_threshold')
+            axs[0, 2].scatter(det_data['best_threshold'], det_data['f1_per_threshold'][1].max(), alpha=alpha, color='red', s=10)
+            axs[1, 2].scatter(seg_data['best_threshold'], seg_data['f1_per_threshold'][1].max(), alpha=alpha, color='red', s=10)
         
         # Set the labels
         axs[0, 0].set_title('Detection ROC')
         axs[1, 0].set_title('Segmentation ROC')
         axs[0, 1].set_title('Detection PR')
         axs[1, 1].set_title('Segmentation PR')
+        axs[0, 2].set_title('Detection F1')
+        axs[1, 2].set_title('Segmentation F1')
         # Set the axis labels
         axs[0, 0].set_xlabel('FPR')
         axs[0, 0].set_ylabel('TPR')
@@ -171,12 +204,17 @@ def run_inference_and_evaluate(args, inferer, visualizer):
         axs[0, 1].set_ylabel('Precision')
         axs[1, 1].set_xlabel('Recall')
         axs[1, 1].set_ylabel('Precision')
+        axs[0, 2].set_xlabel('Threshold')
+        axs[0, 2].set_ylabel('F1')
+        axs[1, 2].set_xlabel('Threshold')
+        axs[1, 2].set_ylabel('F1')
         
         # Adjust layout to ensure no extra space between plots and the edge of the picture
         plt.tight_layout(pad=0.1)
         
         # Save the figure as PDF
         fig.savefig(os.path.join(args.output, 'auc_ap.pdf'))
+
 
     eval_res = [x[0] for x in results]
     times = [x[1] for x in results]
@@ -218,11 +256,14 @@ if __name__ == '__main__':
     parser.add_argument('--split', choices=['train', 'val', 'test'], default='test', help='split to run the model on')
     parser.add_argument('--output', type=str, default='eval_results', help='output dir for the results')
     parser.add_argument('--speedup_benchmark', action='store_true', help='only calculate speedups, and better')
+    parser.add_argument('--csv', action='store_true', help='output as CSV')
+    parser.add_argument('--det_threshold', type=float, default=0.5, help='detection threshold')
+    parser.add_argument('--seg_threshold', type=float, default=0.5, help='segmentation threshold')
     args = parser.parse_args()
     
     data_module = HDF5SpindleDataModule(args.data, num_workers=args.num_workers, annotator_spec=args.annotator_spec)
     
-    inferer = Inferer(data_module)
+    inferer = Inferer(data_module, det_threshold=args.det_threshold, seg_threshold=args.seg_threshold)
     visualizer = PredictionVisualizer()
     
     # Make sure the output directory is cleaned
@@ -240,4 +281,7 @@ if __name__ == '__main__':
     df = pd.DataFrame(rows)
     
     # Save the dataframe as a TeX table
-    df.to_latex(os.path.join(args.output, 'results.tex'), index=False)
+    if args.csv:
+        df.to_csv(os.path.join(args.output, 'results.csv'), index=False)
+    else:
+        df.to_latex(os.path.join(args.output, 'results.tex'), index=False)
