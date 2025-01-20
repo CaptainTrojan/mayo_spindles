@@ -217,13 +217,13 @@ def run_training(args, dataset_specification, data_module, model_name, model_con
     res, times = inferer.infer(export_path, 'val')
     evaluation = inferer.evaluate(res)
     # Log the evaluation results (averages are sufficient)
-    row_data_val = get_row_from_results('onnx', evaluation, times, include_method=False)
+    row_data_val = get_row_from_results('onnx', evaluation, times, include_method=False, do_format=False)
     row_data_val = {f'onnx/val/{k}': v for k, v in row_data_val.items()}
     
     res, times = inferer.infer(export_path, 'test')
     evaluation = inferer.evaluate(res)
     # Log the evaluation results (averages are sufficient)
-    row_data_test = get_row_from_results('onnx', evaluation, times, include_method=False)
+    row_data_test = get_row_from_results('onnx', evaluation, times, include_method=False, do_format=False)
     row_data_test = {f'onnx/test/{k}': v for k, v in row_data_test.items()}
     
     # Put them in a dataframe
@@ -240,8 +240,10 @@ def run_training(args, dataset_specification, data_module, model_name, model_con
         wandb.finish(exit_code=0)
     
     return {
-        'onnx/val/f1': merged['onnx/val/f1'],
-        'onnx/test/f1': merged['onnx/test/f1']
+        'onnx/val/seg_f1': merged['onnx/val/seg_f1'],
+        'onnx/val/det_f1': merged['onnx/val/det_f1'],
+        'onnx/test/seg_f1': merged['onnx/test/seg_f1'],
+        'onnx/test/det_f1': merged['onnx/test/det_f1'],
     }
 
 def get_hparams(args, dataset_specification, model_name, model_config, detector_config):
@@ -267,7 +269,7 @@ if __name__ == '__main__':
     parser.add_argument('--data', type=str, required=True, help='path to the data')
     parser.add_argument('--checkpoint_path', type=str, default='checkpoints', help='path to the checkpoints (default: checkpoints)')
 
-    parser.add_argument('--project_name', type=str, default='mayo_spindles_single_channel', help='name of the project (default: mayo_spindles_single_channel)')
+    parser.add_argument('--project_name', type=str, default='spindles_new_f1', help='name of the project (default: spindles_new_f1)')
     parser.add_argument('--num_workers', type=int, default=0, help='number of workers for the data loader (default: 0)')
     
     parser.add_argument('--epochs', type=int, default=1000, help='max number of epochs to train (default: 1000)')
@@ -308,7 +310,7 @@ if __name__ == '__main__':
         model_config = {}
         
     optim_mode = 'max'
-    metric = 'val_f_measure_avg'
+    metric = 'val_seg_f1_avg'
     
     detector_config = {
         'mode': args.mode,
@@ -341,7 +343,7 @@ if __name__ == '__main__':
                 detector_config[param['name']] = value
             
             res = aggregate_runs(args, dataset_specification, data_module, model_name, model_config, optim_mode, metric, detector_config)
-            main_metric = res['onnx/val/f1/avg']
+            main_metric = res['onnx/val/seg_f1/avg']
             return main_metric
         
         storage = optuna.storages.RDBStorage(

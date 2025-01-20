@@ -26,7 +26,8 @@ def format_value(value):
 def get_row_from_results(key,
                          df_data: dict[list[pd.DataFrame]] | list[dict[list[pd.DataFrame]]],
                          times: dict[str, float] | list[dict[str, float]],
-                         include_metrics=True, include_times=False, concise_times=True, include_method=True):
+                         include_metrics=True, include_times=False, concise_times=True, include_method=True,
+                         do_format=True):
     if include_metrics:
         if isinstance(df_data, list):
             det_f1 = [d['det_f1'][1].loc['micro-average'] for d in df_data]
@@ -71,21 +72,34 @@ def get_row_from_results(key,
         })
         
         # Apply formatting
-        for k in ret.keys():
-            ret[k] = format_value(ret[k])
+        if do_format:
+            for k in ret.keys():
+                ret[k] = format_value(ret[k])
 
     if include_times:
         if concise_times:
             if isinstance(times, list):
-                ret['avg_speedup'] = format_value([t['avg_speedup'] for t in times])
+                if do_format:
+                    ret['avg_speedup'] = format_value([t['avg_speedup'] for t in times])
+                else:
+                    ret['avg_speedup'] = [t['avg_speedup'] for t in times]
             else:
-                ret['avg_speedup'] = format_value(times['avg_speedup'])
+                if do_format:
+                    ret['avg_speedup'] = format_value(times['avg_speedup'])
+                else:
+                    ret['avg_speedup'] = times['avg_speedup']
         else:
             if isinstance(times, list):
                 for k in times[0].keys():
-                    ret[k] = format_value([t[k] for t in times])
+                    if do_format:
+                        ret[k] = format_value([t[k] for t in times])
+                    else:
+                        ret[k] = [t[k] for t in times]
             else:
-                ret.update({k: format_value(v) for k, v in times.items()})
+                if do_format:
+                    ret.update({k: format_value(v) for k, v in times.items()})
+                else:
+                    ret.update(times)
         
     return ret
 
