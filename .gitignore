@@ -24,3 +24,5 @@ SPIKES/
 SPIKE_INTERVALS/
 hdf5_data*
 lightning_logs/
+DREAMS*
+final*
