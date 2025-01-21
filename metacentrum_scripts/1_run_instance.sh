@@ -24,10 +24,6 @@ pip install -r requirements.txt
 
 ls -alh
 
-<<<<<<< Updated upstream
-python mayo_spindles/run.py --num_workers 4 --project_name spindles_new_f1_final $args
-=======
 python mayo_spindles/run.py --num_workers 0 $args
->>>>>>> Stashed changes
 
 clean_scratch
