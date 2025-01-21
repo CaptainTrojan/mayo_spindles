@@ -18,11 +18,16 @@ conda activate p311
 export TMPDIR=$SCRATCHDIR
 export PYTHONPATH=$PYTHONPATH:$SCRATCHDIR/mayo_spindles:$SCRATCHDIR/mayo_spindles/mayo_spindles
 export WANDB_API_KEY=42f902b34c4d27b2d2887fbb261df5ed89594e58
+export POSTGRES_PW=31optuna42rocks
 cd mayo_spindles
 pip install -r requirements.txt
 
 ls -alh
 
+<<<<<<< Updated upstream
 python mayo_spindles/run.py --num_workers 4 --project_name spindles_new_f1_final $args
+=======
+python mayo_spindles/run.py --num_workers 0 $args
+>>>>>>> Stashed changes
 
 clean_scratch
