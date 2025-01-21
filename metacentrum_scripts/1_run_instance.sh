@@ -23,6 +23,6 @@ pip install -r requirements.txt
 
 ls -alh
 
-python mayo_spindles/run.py --num_workers 4 $args
+python mayo_spindles/run.py --num_workers 4 --project_name spindles_new_f1_final $args
 
 clean_scratch
