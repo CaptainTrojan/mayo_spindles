@@ -213,14 +213,14 @@ class HDF5Dataset(Dataset):
 
 
 class HDF5SpindleDataModule(LightningDataModule):
-    def __init__(self, data_dir, batch_size=32, num_workers=0, annotator_spec: str = ''):
+    def __init__(self, data_dir, batch_size=32, num_workers=0, annotator_spec: str = '', use_train_augmentations=True):
         super().__init__()
         self.data_dir = data_dir
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.annotator_spec = annotator_spec
             
-        self.train_dataset = HDF5Dataset(self.data_dir, 'train', annotator_spec=annotator_spec, use_augmentations=True)
+        self.train_dataset = HDF5Dataset(self.data_dir, 'train', annotator_spec=annotator_spec, use_augmentations=use_train_augmentations)
         self.val_dataset = HDF5Dataset(self.data_dir, 'val', annotator_spec=annotator_spec)
         self.test_dataset = HDF5Dataset(self.data_dir, 'test', annotator_spec=annotator_spec)
         

@@ -26,7 +26,7 @@ if os.path.exists(args.output_dir):
 os.makedirs(args.output_dir, exist_ok=True)
 
 # Get all artifacts of type 'model' in the specified project
-model_artifacts = api.artifact_collections(project_name='mayo_spindles_single_channel', type_name='model')
+model_artifacts = api.artifact_collections(project_name=args.project_name, type_name='model')
 
 i = 0
 print("Loading artifacts, please be patient...")

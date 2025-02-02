@@ -13,7 +13,7 @@ class PredictionVisualizer:
     def __init__(self) -> None:
         self.evaluator = Evaluator()
         self.evaluator.add_metric('det_f1', Evaluator.DETECTION_F_MEASURE)
-        self.evaluator.add_metric('seg_iou', Evaluator.SEGMENTATION_JACCARD_INDEX)
+        self.evaluator.add_metric('seg_f1', Evaluator.SEGMENTATION_F_MEASURE)
         
     def generate_prediction_plot_directory(self, root, name, predictions, should_preprocess_preds=True):
         x_all, y_true_all, y_pred_all = predictions
@@ -134,7 +134,7 @@ class PredictionVisualizer:
         # Add the expected/actual segmentation
         ax3 = fig.add_subplot(sub_grid_2[0, 0])
         ax3.plot(y_true['segmentation'].flatten(), linewidth=2, label='true', color='black')
-        ax3.plot(y_pred['segmentation'].flatten(), linewidth=0.5, label='pred', color='red')
+        ax3.plot(y_pred['segmentation'].flatten(), linewidth=2, label='pred', color='red')
         ax3.margins(x=0)
         ax3.set_title('Segmentation / Detections')
         ax3.set_xticks([])
@@ -183,7 +183,8 @@ class PredictionVisualizer:
             ax.set_title(metric_name)
             
         if return_zoomed_spindles:
-            pad_size = 150
+            target_size = 500
+            pad_size = (target_size - (end - start)) // 2
             zoomed_spindle_figs = []
             for det in sorted(det_true, key=lambda x: x[0]):
                 start, end, _ = det

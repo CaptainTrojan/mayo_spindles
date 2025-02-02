@@ -360,7 +360,7 @@
             "justMyCode": false,
             "args": [
                 "--data", "hdf5_data_corrected",
-                "--model", "special_models\\best_val_mayoieeg\\gallant-pond-2845-separate_bottleneck-val_f_measure_avg-0.70927-simplified.onnx",
+                "--model", "special_models\\best_val_mayoieeg\\comfy-sound-2-separate_bottleneck-val_seg_f1_avg-0.59018-simplified.onnx",
                 "--output", "hdf5_data_corrected_SPCHR",
             ]
         },
@@ -385,7 +385,7 @@
             "args": [
                 "--data", "DREAMS_HDF5",
                 "--annotator_spec", "any",
-                "--model", "special_models\\best_val_dreams\\chocolate-wildflower-2819-separate_bottleneck-val_f_measure_avg-0.72340-simplified.onnx",
+                "--model", "special_models\\best_val_dreams\\divine-butterfly-9-separate_bottleneck-val_seg_f1_avg-0.64985-simplified.onnx",
                 "--output", "DREAMS_HDF5_SPCHR",
             ]
         },
@@ -481,6 +481,19 @@
             ]   
         },
         {
+            "name": "Compare models (mayoieeg, segf1)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/compare_onnx_models.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--data", "hdf5_data_corrected",
+                "--model_dir", "onnx_mayo_seg_f1",
+                "--output_dir", "results_mayo_seg_f1",
+            ]   
+        },
+        {
             "name": "Compare models (DREAMS)",
             "type": "debugpy",
             "request": "launch",
@@ -492,6 +505,20 @@
                 "--annotator_spec", "any",
                 "--model_dir", "onnx_models_dreams",
                 "--output_dir", "results_dreams",
+            ]   
+        },
+        {
+            "name": "Compare models (DREAMS, segf1)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/compare_onnx_models.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--data", "DREAMS_HDF5",
+                "--annotator_spec", "any",
+                "--model_dir", "onnx_dreams_seg_f1",
+                "--output_dir", "results_dreams_seg_f1",
             ]   
         },
         {
@@ -528,6 +555,86 @@
             ]
         },
         {
+            "name": "Export tex tables (mayoieeg, separate_bottleneck, segf1)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/tex_table_export.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--data", "hdf5_data_corrected",
+                "--model_dir", "onnx_mayo_seg_f1",
+                "--variant", "separate_bottleneck",
+                "--draw_plots",
+                "--draw_auc_ap",
+                "--output", "final_eval_mayoieeg_segf1",
+                "--model_only",
+                // "--csv",
+                // "--det_threshold", "0.72",
+                // "--seg_threshold", "0.51",
+            ]
+        },
+        {
+            "name": "Export tex tables (mayoieeg, separate_bottleneck, segf1, val)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/tex_table_export.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--data", "hdf5_data_corrected",
+                "--model_dir", "onnx_mayo_seg_f1",
+                "--variant", "separate_bottleneck",
+                "--draw_plots",
+                "--draw_auc_ap",
+                "--output", "final_eval_mayoieeg_segf1_val",
+                "--model_only",
+                "--split", "val",
+                "--csv"
+            ]
+        },
+        {
+            "name": "Export tex tables (DREAMS, separate_bottleneck, segf1)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/tex_table_export.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--data", "DREAMS_HDF5",
+                "--annotator_spec", "any",
+                "--model_dir", "onnx_dreams_seg_f1",
+                "--variant", "separate_bottleneck",
+                "--draw_plots",
+                "--draw_auc_ap",
+                "--output", "final_eval_dreams_segf1",
+                "--model_only",
+                // "--csv",
+                // "--det_threshold", "0.66",
+                // "--seg_threshold", "0.53",
+            ]
+        },
+        {
+            "name": "Export tex tables (DREAMS, separate_bottleneck, segf1, val)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/tex_table_export.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--data", "DREAMS_HDF5",
+                "--annotator_spec", "any",
+                "--model_dir", "onnx_dreams_seg_f1",
+                "--variant", "separate_bottleneck",
+                "--draw_plots",
+                "--draw_auc_ap",
+                "--output", "final_eval_dreams_segf1_val",
+                "--model_only",
+                "--split", "val",
+                "--csv"
+            ]
+        },
+        {
             "name": "Export tex tables (DREAMS, separate_bottleneck, test)",
             "type": "debugpy",
             "request": "launch",
@@ -544,8 +651,8 @@
                 "--output", "final_eval_dreams",
                 "--model_only",
                 "--csv",
-                "--seg_threshold", "0.45",
-                "--det_threshold", "0.49"
+                // "--seg_threshold", "0.45",
+                // "--det_threshold", "0.49"
             ]
         },
         {

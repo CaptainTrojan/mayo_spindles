@@ -105,7 +105,7 @@ def main():
     # Perform statistical tests to determine if the differences in means are significant
     # Perform Mann-Whitney U test for each metric
     p_values = []
-    target_metrics = ['det_f1_f_measure', 'seg_iou_jaccard_index', 'det_auc_ap_average_precision', 'seg_auc_ap_average_precision']
+    target_metrics = ['det_f1_f_measure', 'seg_iou_jaccard_index', 'det_auc_ap_average_precision', 'seg_auc_ap_average_precision', 'seg_f1_f_measure']
     for metric in target_metrics:
         for excluded_group in results.keys():
             included_groups = [group for group in results.keys() if group != excluded_group]

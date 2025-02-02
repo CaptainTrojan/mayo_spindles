@@ -10,6 +10,8 @@ from tqdm import tqdm
 from scipy import signal
 import numpy as np
 import os
+import matplotlib.pyplot as plt
+from seaborn import violinplot
 
 
 # Helper function to calculate spindle density
@@ -29,8 +31,7 @@ def calculate_frequency(x, intervals, sample_rate=250, target_frequencies=(9, 16
         freqs = freqs[(freqs >= target_frequencies[0]) & (freqs <= target_frequencies[1])]
         
         # Find central frequency        
-        dominant_freq = freqs[np.argmax(power)]
-        frequencies.append(dominant_freq)
+        frequencies.append(freqs[np.argmax(power)]) if len(power) > 0 else 0
     return np.mean(frequencies) if frequencies else 0
 
 # Helper function to calculate mean amplitude of spindles
@@ -43,14 +44,52 @@ def calculate_duration(intervals, sample_rate=250):
     durations = [(end - start) / sample_rate for start, end, _ in intervals]
     return np.mean(durations) if durations else 0
 
-# Helper function for phase-amplitude coupling calculation (simple example with Hilbert transform)
-def calculate_phase_amplitude_coupling(x, intervals, sample_rate=250):
+def bandpass_filter(signal_data, lowcut, highcut, sample_rate, order=4):
+    """Applies a Butterworth bandpass filter."""
+    nyquist = 0.5 * sample_rate
+    low = lowcut / nyquist
+    high = highcut / nyquist
+    b, a = signal.butter(order, [low, high], btype='band')
+    try:
+        return signal.filtfilt(b, a, signal_data)
+    except ValueError:
+        return None
+
+def calculate_phase_amplitude_coupling(x, intervals, low_freq=(0.5, 4), high_freq=(11, 16), sample_rate=250, num_bins=18):
+    """Computes the Modulation Index (MI) for phase-amplitude coupling."""
     pac_values = []
+    
     for start, end, _ in intervals:
-        spindle_segment = x[start:end]
-        analytic_signal = signal.hilbert(spindle_segment)
-        amplitude_envelope = np.abs(analytic_signal)
-        pac_values.append(np.mean(amplitude_envelope))
+        segment = x[start:end]
+
+        # Filter for phase (low-frequency)
+        phase_signal = bandpass_filter(segment, low_freq[0], low_freq[1], sample_rate)
+        if phase_signal is None:
+            continue
+        phase = np.angle(signal.hilbert(phase_signal))
+
+        # Filter for amplitude (high-frequency)
+        amplitude_signal = bandpass_filter(segment, high_freq[0], high_freq[1], sample_rate)
+        amplitude_envelope = np.abs(signal.hilbert(amplitude_signal))
+
+        # Bin phase into intervals
+        phase_bins = np.linspace(-np.pi, np.pi, num_bins + 1)
+        mean_amplitudes = np.zeros(num_bins)
+
+        for i in range(num_bins):
+            indices = np.where((phase >= phase_bins[i]) & (phase < phase_bins[i+1]))[0]
+            mean_amplitudes[i] = np.mean(amplitude_envelope[indices]) if len(indices) > 0 else 0
+        
+        # Normalize to get a probability distribution
+        mean_amplitudes /= np.sum(mean_amplitudes)
+
+        # Compute Modulation Index (MI) using Kullback-Leibler divergence
+        uniform_dist = np.ones(num_bins) / num_bins
+        kl_div = np.sum(mean_amplitudes * np.log(mean_amplitudes / uniform_dist + 1e-10))  # Avoid log(0)
+        modulation_index = kl_div / np.log(num_bins)
+        
+        pac_values.append(modulation_index)
+    
     return np.mean(pac_values) if pac_values else 0
 
 # Helper function for spectral power calculation
@@ -86,6 +125,20 @@ def calculate_chirp(x, intervals, sample_rate=250):
     
     return np.mean(chirps) if chirps else 0
 
+def calculate_chirp_detailed(x, intervals, sample_rate=250):
+    chirps = []
+    for start, end, _ in intervals:
+        spindle_segment = x[start:end]
+        analytic_signal = signal.hilbert(spindle_segment)
+        instantaneous_phase = np.unwrap(np.angle(analytic_signal))
+        instantaneous_frequency = np.diff(instantaneous_phase) * sample_rate / (2.0 * np.pi)
+        
+        # Calculate the change in frequency (chirp)
+        chirp_fn = np.diff(instantaneous_frequency)
+        chirps.append(chirp_fn)
+    
+    return chirps
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Compute spindle characteristics')
@@ -101,10 +154,11 @@ if __name__ == '__main__':
     shutil.rmtree(args.output, ignore_errors=True)
     
     all_results = []
+    chirps = []
     for split in ['train', 'val', 'test']:
         print(f'Processing {split} split')
         
-        data_module = HDF5SpindleDataModule(args.data, batch_size=16, num_workers=10, annotator_spec=args.annotator_spec)
+        data_module = HDF5SpindleDataModule(args.data, batch_size=16, num_workers=10, annotator_spec=args.annotator_spec, use_train_augmentations=False)
         inferer = Inferer(data_module)
         predictions, _ = inferer.infer(args.model, split)
         
@@ -129,13 +183,16 @@ if __name__ == '__main__':
                 all_results.append({'split': split, 'origin': origin, 'name': 'Central Frequency (Hz)', 'value': calculate_frequency(x, intervals)})
                 all_results.append({'split': split, 'origin': origin, 'name': 'Amplitude (μV)', 'value': calculate_amplitude(x, intervals)})
                 all_results.append({'split': split, 'origin': origin, 'name': 'Duration (s)', 'value': calculate_duration(intervals)})
-                all_results.append({'split': split, 'origin': origin, 'name': 'Phase Coupling (μV)', 'value': calculate_phase_amplitude_coupling(x, intervals)})
+                all_results.append({'split': split, 'origin': origin, 'name': 'Phase Coupling (unitless)', 'value': calculate_phase_amplitude_coupling(x, intervals)})
                 all_results.append({'split': split, 'origin': origin, 'name': 'Spectral Power (μV^2)', 'value': calculate_spectral_power(x, intervals)})
                 # all_results.append({'split': split, 'origin': origin, 'name': 'timing_precision', 'value': calculate_timing_precision(intervals)})
                 all_results.append({'split': split, 'origin': origin, 'name': 'Chirp (Hz/s)', 'value': calculate_chirp(x, intervals)})
                 
-            if i == 5:
-                break  # Just for testing purposes, remove this line for full processing
+                for chirp_fn in calculate_chirp_detailed(x, intervals):
+                    chirps.append({'split': split, 'origin': origin, 'value': chirp_fn})
+                
+            # if i == 5:
+            #     break  # Just for testing purposes, remove this line for full processing
 
     df = pd.DataFrame(all_results)
     # Save the results
@@ -152,3 +209,40 @@ if __name__ == '__main__':
     # Aggregate 'value' into 'mean' and 'std', but for all splits together and only origin='pred'
     df_agg_pred = df[df['origin'] == 'pred'].groupby(['name'])['value'].agg(['mean', 'std']).reset_index()
     df_agg_pred.to_csv(os.path.join(args.output, 'results_agg_pred.csv'), index=False)
+    
+    # Build chirp histograms
+    percentage_positions = np.linspace(0, 1, 21)  # 0, 0.05, 0.1, ..., 1
+
+    for split in ['train', 'val', 'test']:
+        for origin in ['GT', 'pred']:
+            chirp_values = [chirp['value'] for chirp in chirps if chirp['split'] == split and chirp['origin'] == origin]
+            if chirp_values:
+                all_chirp_values = np.concatenate(chirp_values)
+                plt.hist(all_chirp_values, bins=100, range=(-4, 4))
+                plt.xlabel('Chirp (Hz/s)')
+                plt.ylabel('Count')
+                plt.title(f'Chirp Histogram - {split} - {origin}')
+                plt.savefig(os.path.join(args.output, f'chirp_histogram_{split}_{origin}.png'))
+                plt.close()
+                
+                mean_chirp_values = np.array([np.mean(chirp) for chirp in chirp_values])
+                plt.hist(mean_chirp_values, bins=100, range=(-0.5, 0.5))
+                plt.xlabel('Chirp (Hz/s)')
+                plt.ylabel('Count')
+                plt.title(f'Mean Chirp Histogram - {split} - {origin}')
+                plt.savefig(os.path.join(args.output, f'chirp_mean_histogram_{split}_{origin}.png'))
+                plt.close()
+    
+                # interpolated_chirp_values = [
+                #     np.interp(percentage_positions, np.linspace(0, 1, len(chirp_fn)), chirp_fn) for chirp_fn in chirp_values if len(chirp_fn) > 20
+                # ]
+                
+                # interpolated_chirp_values = np.array(interpolated_chirp_values)
+                
+                # # Build a violin plot for each index
+                # violinplot(data=interpolated_chirp_values)
+                # plt.xlabel('Time (%)')
+                # plt.ylabel('Chirp (Hz/s)')
+                # plt.title(f'Chirp Violin Plot - {split} - {origin}')
+                # plt.savefig(os.path.join(args.output, f'chirp_violin_{split}_{origin}.png'))
+                # plt.close()
