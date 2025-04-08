@@ -1,43 +1,39 @@
-<table>
-  <th>
-    <td>Interval plot</td>
-    <td>Interval plot with spindles</td>
-    <td>Segment plot</td>
-  </th>
-  <tr>
-    <td>Sub1 EMU1</td>
-    <td><img src="plots/sub1_emu1/interval_plot.png" alt="Sub1 Emu1 Interval Plot" width="500"/></td>
-    <td><img src="plots/sub1_emu1/interval_plot_with_spindles.png" alt="Sub1 Emu1 Interval Plot with Spindles" width="500"/></td>
-    <td><img src="plots/sub1_emu1/segment_plot.png" alt="Sub1 Emu1 Segment Plot" width="500"/></td>
-  </tr>
-  <tr>
-    <td>Sub2 EMU1</td>
-    <td><img src="plots/sub2_emu1/interval_plot.png" alt="Sub2 Emu1 Interval Plot" width="500"/></td>
-  </tr>
-  <tr>
-    <td>Sub2 EMU2</td>
-    <td><img src="plots/sub2_emu2/interval_plot.png" alt="Sub2 Emu2 Interval Plot" width="500"/></td>
-    <td><img src="plots/sub2_emu2/interval_plot_with_spindles.png" alt="Sub2 Emu2 Interval Plot with Spindles" width="500"/></td>
-    <td><img src="plots/sub2_emu2/segment_plot.png" alt="Sub2 Emu2 Segment Plot" width="500"/></td>
-  </tr>
-  <tr>
-    <td>Sub3 EMU1</td>
-    <td><img src="plots/sub3_emu1/interval_plot.png" alt="Sub3 Emu1 Interval Plot" width="500"/></td>
-  </tr>
-  <tr>
-    <td>Sub3 EMU2</td>
-    <td><img src="plots/sub3_emu2/interval_plot.png" alt="Sub3 Emu2 Interval Plot" width="500"/></td>
-    <td><img src="plots/sub3_emu2/interval_plot_with_spindles.png" alt="Sub3 Emu2 Interval Plot with Spindles" width="500"/></td>
-    <td><img src="plots/sub3_emu2/segment_plot.png" alt="Sub3 Emu2 Segment Plot" width="500"/></td>
-  </tr>
-  <tr>
-    <td>Sub4 EMU1</td>
-    <td><img src="plots/sub4_emu1/interval_plot.png" alt="Sub4 Emu1 Interval Plot" width="500"/></td>
-  </tr>
-  <tr>
-    <td>Sub5 EMU1</td>
-    <td><img src="plots/sub5_emu1/interval_plot.png" alt="Sub5 Emu1 Interval Plot" width="500"/></td>
-    <td><img src="plots/sub5_emu1/interval_plot_with_spindles.png" alt="Sub5 Emu1 Interval Plot with Spindles" width="500"/></td>
-    <td><img src="plots/sub5_emu1/segment_plot.png" alt="Sub5 Emu1 Segment Plot" width="500"/></td>
-  </tr>
-</table>
+# Mayo Sleep Spindles Research Project
+
+## Project Overview
+This repository contains the implementation and research work related to sleep spindle detection and analysis conducted at Mayo Clinic. Sleep spindles are thalamocortical oscillations occurring during non-REM sleep that play crucial roles in memory consolidation, cognition, and neural development.
+
+## Graphical Abstract
+![Graphical Abstract: Sleep Spindles](graphical_abstract_spindles.pdf)
+
+## Scalp and iEEG Data Visualization
+![Scalp and Intracranial EEG Data](scalp_ieeg_data.pdf)
+
+## Research Highlights
+- Advanced detection of sleep spindles using neural network approaches
+- Analysis of spindle characteristics across different patient populations
+- Integration of scalp and intracranial EEG data for comprehensive spindle characterization
+
+### Installation Guide
+On Linux and Windows the project can be used by running the following commands:
+
+#### Using `pip` with virtualenv for Windows
+```shell
+# enter the project root
+git clone https://github.com/yourusername/mayo_spindles.git
+cd mayo_spindles
+# Create the virtual env with pip
+python -m venv venv
+venv\Scripts\activate
+pip install --upgrade pip
+pip install -r requirements.txt
+# With jupyter notebook
+pip install ipykernel
+pip install ipywidgets
+```
+
+
+## Directory Structure
+- `mayo_spindles/`: Core implementation of the project
+- `model_repo/`: Repository of various models used in the project
+
