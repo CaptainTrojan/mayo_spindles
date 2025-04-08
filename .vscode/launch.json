@@ -766,5 +766,13 @@
                 "--model_only"
             ]
         },
+        {
+            "name": "Export scalp + ieeg image data",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/export_scalp_ieeg_image_data.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+        },
     ]
 }
