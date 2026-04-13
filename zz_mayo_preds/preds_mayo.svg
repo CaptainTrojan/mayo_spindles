@@ -4,9 +4,9 @@
 <svg
    version="1.1"
    id="svg1"
-   width="700.00012"
-   height="861"
-   viewBox="0 0 700.00012 860.99999"
+   width="740.00012"
+   height="853"
+   viewBox="0 0 740.00012 852.99999"
    sodipodi:docname="preds_mayo.svg"
    inkscape:version="1.3 (0e150ed6c4, 2023-07-21)"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
@@ -154,21 +154,21 @@
      inkscape:pagecheckerboard="0"
      inkscape:deskcolor="#d1d1d1"
      inkscape:zoom="0.87725435"
-     inkscape:cx="67.255295"
-     inkscape:cy="514.10403"
-     inkscape:window-width="1278"
-     inkscape:window-height="1360"
-     inkscape:window-x="-7"
-     inkscape:window-y="709"
-     inkscape:window-maximized="0"
+     inkscape:cx="106.58254"
+     inkscape:cy="241.09313"
+     inkscape:window-width="2560"
+     inkscape:window-height="1369"
+     inkscape:window-x="-8"
+     inkscape:window-y="701"
+     inkscape:window-maximized="1"
      inkscape:current-layer="g1">
     <inkscape:page
        x="0"
        y="0"
        inkscape:label="1"
        id="page1"
-       width="700.00012"
-       height="861"
+       width="740.00012"
+       height="853"
        margin="0"
        bleed="0" />
   </sodipodi:namedview>
@@ -176,7 +176,7 @@
      id="g1"
      inkscape:groupmode="layer"
      inkscape:label="1"
-     transform="translate(-95.466661,-80.081619)">
+     transform="translate(-55.466663,-80.081619)">
     <path
        id="path5"
        d="M 96.003636,334.52409 H 695.26416 V 225.7873 H 96.003636 Z"
@@ -545,5 +545,60 @@
        style="fill:none;fill-opacity:0.168627;stroke:#000000;stroke-width:2.68486;stroke-dasharray:8.05457, 8.05457;stroke-opacity:0.168627"
        d="M 567.14678,607.08162 V 797.59931"
        id="path12" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:29.3333px;line-height:1.1;font-family:Arial;-inkscape-font-specification:Arial;text-align:justify;letter-spacing:0px;word-spacing:0px;fill:#000000;stroke-width:1;stroke-opacity:0.169811"
+       x="54.406769"
+       y="166.43706"
+       id="text2"><tspan
+         sodipodi:role="line"
+         id="tspan2"
+         style="font-size:29.3333px;stroke-width:1"
+         x="54.406769"
+         y="166.43706">a)</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:29.3333px;line-height:1.1;font-family:Arial;-inkscape-font-specification:Arial;text-align:justify;letter-spacing:0px;word-spacing:0px;fill:#000000;stroke-width:1;stroke-opacity:0.169811"
+       x="53.547394"
+       y="293.43707"
+       id="text2-4"><tspan
+         sodipodi:role="line"
+         id="tspan2-7"
+         style="font-size:29.3333px;stroke-width:1"
+         x="53.547394"
+         y="293.43707">b)</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:29.3333px;line-height:1.1;font-family:Arial;-inkscape-font-specification:Arial;text-align:justify;letter-spacing:0px;word-spacing:0px;fill:#000000;stroke-width:1;stroke-opacity:0.169811"
+       x="54.320831"
+       y="420.43704"
+       id="text3"><tspan
+         sodipodi:role="line"
+         id="tspan3"
+         style="stroke-width:1"
+         x="54.320831"
+         y="420.43704">c)</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:29.3333px;line-height:1.1;font-family:Arial;-inkscape-font-specification:Arial;text-align:justify;letter-spacing:0px;word-spacing:0px;fill:#000000;stroke-width:1;stroke-opacity:0.169811"
+       x="54.464062"
+       y="547.43707"
+       id="text4"><tspan
+         sodipodi:role="line"
+         id="tspan4"
+         style="stroke-width:1"
+         x="54.464062"
+         y="547.43707">d)</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:29.3333px;line-height:1.1;font-family:Arial;-inkscape-font-specification:Arial;text-align:justify;letter-spacing:0px;word-spacing:0px;fill:#000000;stroke-width:1;stroke-opacity:0.169811"
+       x="54.392445"
+       y="776.57288"
+       id="text5"><tspan
+         sodipodi:role="line"
+         id="tspan5"
+         style="stroke-width:1"
+         x="54.392445"
+         y="776.57288">e)</tspan></text>
   </g>
 </svg>
