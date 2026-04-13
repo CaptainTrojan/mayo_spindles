@@ -71,6 +71,45 @@ openspindlenet eval data/signals/test_000.txt data/labels/test_000.txt --visuali
 ```
 
 This command generates JSON and CSV metric outputs and, when requested, a PDF visualization with predictions, labels, and metrics.
+
+## Evaluate full directories
+
+You can evaluate all paired TXT files at once by passing signal and label directories:
+
+```bash
+openspindlenet eval data/signals data/labels --output-dir eval_results
+```
+
+This creates:
+
+- `eval_results/per_file_results.csv`: one row per `test_XXX.txt`
+- `eval_results/summary.json`: macro and micro metrics across all files
+- `eval_results/visualizations/*.pdf`: one PDF per file
+
+## How these TXT files were produced
+
+This bundle is generated from `DREAMS_HDF5/data.hdf5` and `DREAMS_HDF5/splits.json`, which are built by `mayo_spindles/dreams_to_hdf5.py` from the original DREAMS excerpt files.
+
+Processing details in that HDF5 build step:
+
+- Input excerpts are loaded from `excerpt*.txt` in `DatabaseSpindles`.
+- Source sampling rates are inferred from sample count (50/100/200 Hz), then each excerpt is resampled to 250 Hz.
+- Signals are segmented into non-overlapping 30 second windows (`7500` samples each).
+- Annotation masks are loaded from `Visual_scoring1_excerpt*.txt` and `Visual_scoring2_excerpt*.txt` (when scorer 2 is available).
+- Windows with high artefactness are dropped using `artefactness = max(abs(x)) / median(abs(x))`, with reject threshold `> 12` for DREAMS conversion.
+- Windows with no spindle activity (`sum(y1) + sum(y2) == 0`) are excluded, so the HDF5 contains spindle-positive windows.
+- Labels are stored per scorer (`y1`, `y2`) and this exporter derives the target label according to `--annotator_spec`:
+    - `any`: union (logical OR) of available scorers
+    - `all`: intersection (logical AND) of available scorers
+    - `1` or `2`: use one scorer directly (`y1` or `y2`)
+- Train/val/test splits are read from `splits.json`; this bundle exports only the `test` indices.
+
+Bundle export details in this script:
+
+- For each test index, one pair is written:
+    - `data/signals/test_XXX.txt` (float32 signal)
+    - `data/labels/test_XXX.txt` (0/1 label)
+- Existing TXT files in `data/signals` and `data/labels` are cleared first for deterministic regeneration.
 """
     (bundle_root / "README.md").write_text(content, encoding="utf-8")
 
