@@ -37,3 +37,15 @@ pip install ipywidgets
 - `mayo_spindles/`: Core implementation of the project
 - `model_repo/`: Repository of various models used in the project
 
+## OpenSpindleNet DREAMS Bundle Export
+
+The TXT-only `dreams-bundle` used by `openspindlenet eval` is generated from this repository.
+
+From the `mayo_spindles` repository root:
+
+```shell
+python mayo_spindles/create_dreams_repro_bundle.py --source_data DREAMS_HDF5 --bundle_dir ../openspindlenet/dreams-bundle --annotator_spec any
+```
+
+This exports DREAMS test split signals and labels as TXT files into `openspindlenet/dreams-bundle/data` and refreshes that folder's README.
+

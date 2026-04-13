@@ -774,5 +774,23 @@
             "console": "integratedTerminal",
             "justMyCode": false,
         },
+                {
+            "name": "DREAMS are working right?",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "mayo_spindles/tex_table_export.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--data", "DREAMS_HDF5",
+                "--annotator_spec", "any",
+                "--model_dir", "onnx_dreams_seg_f1",
+                "--variant", "separate_bottleneck",
+                "--draw_plots",
+                "--draw_auc_ap",
+                "--output", "dreams_are_working_right",
+                "--model_only",
+            ]
+        },
     ]
 }
