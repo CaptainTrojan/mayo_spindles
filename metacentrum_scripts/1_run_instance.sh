@@ -17,7 +17,7 @@ conda create -n p311 -c conda-forge python=3.11 cmake
 conda activate p311
 export TMPDIR=$SCRATCHDIR
 export PYTHONPATH=$PYTHONPATH:$SCRATCHDIR/mayo_spindles:$SCRATCHDIR/mayo_spindles/mayo_spindles
-export WANDB_API_KEY=42f902b34c4d27b2d2887fbb261df5ed89594e58
+export WANDB_API_KEY=${WANDB_API_KEY:?WANDB_API_KEY must be set, e.g. qsub -v WANDB_API_KEY=...}
 export POSTGRES_PW=31optuna42rocks
 cd mayo_spindles
 pip install -r requirements.txt
